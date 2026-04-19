@@ -1,12 +1,34 @@
-import { createSignal } from 'solid-js';
+import { createSignal, createEffect } from 'solid-js';
 
 interface PlayerJoinProps {
   onJoin: (code: string) => void;
   onHostCreate: () => void;
+  connected?: boolean;
 }
 
 export const PlayerJoin = (props: PlayerJoinProps) => {
   const [code, setCode] = createSignal('');
+  const [autoJoinPending, setAutoJoinPending] = createSignal(false);
+  const [autoJoinCode, setAutoJoinCode] = createSignal<string | null>(null);
+
+  // Check for code in URL query parameter
+  createEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const codeParam = searchParams.get('code');
+    if (codeParam && codeParam.trim()) {
+      setCode(codeParam.toUpperCase());
+      setAutoJoinCode(codeParam.toUpperCase());
+      setAutoJoinPending(true);
+    }
+  });
+
+  // Auto-join once WebSocket is connected
+  createEffect(() => {
+    if (autoJoinPending() && props.connected && autoJoinCode()) {
+      props.onJoin(autoJoinCode()!);
+      setAutoJoinPending(false);
+    }
+  });
 
   const handleSubmit = () => {
     if (code().trim()) {

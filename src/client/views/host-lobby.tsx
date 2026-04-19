@@ -1,4 +1,5 @@
 import { For } from 'solid-js';
+import { QRCode } from '../components/qr-code';
 
 interface HostLobbyProps {
   roomCode: string;
@@ -7,12 +8,24 @@ interface HostLobbyProps {
 }
 
 export const HostLobby = (props: HostLobbyProps) => {
+  const getJoinUrl = () => {
+    const origin = window.location.origin;
+    return `${origin}/?code=${props.roomCode}`;
+  };
+
   return (
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 2rem; padding: 2rem;">
       <h1>Game Lobby</h1>
+      
+      <div style="text-align: center;">
+        <h2>Join Using QR Code</h2>
+        <QRCode value={getJoinUrl()} size={256} />
+      </div>
+
       <div style="font-size: 2rem; font-weight: bold; color: #007bff;">
         Room Code: {props.roomCode}
       </div>
+
       <div style="text-align: center;">
         <h2>Connected Players: {props.players.length}</h2>
         <ul style="list-style: none; margin-top: 1rem;">

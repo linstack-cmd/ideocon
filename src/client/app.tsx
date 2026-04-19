@@ -61,11 +61,17 @@ export const App = () => {
     };
 
     client.onMessage(messageHandler);
+    
+    // Set up connection state tracking with polling
+    const connectionCheckInterval = setInterval(() => {
+      setConnected(client.isConnected());
+    }, 100);
+    
     client.connect();
     setWs(client);
-    setConnected(true);
 
     return () => {
+      clearInterval(connectionCheckInterval);
       client.disconnect();
       setConnected(false);
     };
@@ -102,7 +108,7 @@ export const App = () => {
     <div style="width: 100%; height: 100%;">
       <Switch>
         <Match when={view() === 'join'}>
-          <PlayerJoin onJoin={handlePlayerJoin} onHostCreate={handleHostCreate} />
+          <PlayerJoin onJoin={handlePlayerJoin} onHostCreate={handleHostCreate} connected={connected()} />
         </Match>
         <Match when={view() === 'host-lobby'}>
           <HostLobby
