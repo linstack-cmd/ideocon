@@ -5,6 +5,7 @@ import type { ServerMessage } from '../shared/types.js';
 import { HostLobby } from './views/host-lobby.js';
 import { HostGame } from './views/host-game.js';
 import { PlayerJoin } from './views/player-join.js';
+import { QRJoin } from './views/qr-join.js';
 import { PlayerGame } from './views/player-game.js';
 
 export const App = () => {
@@ -13,7 +14,7 @@ export const App = () => {
 
   const [ws, setWs] = createSignal<WebSocketClient | null>(null);
   const [connected, setConnected] = createSignal(false);
-  const [view, setView] = createSignal<'join' | 'host-lobby' | 'host-game' | 'player-game'>('join');
+  const [view, setView] = createSignal<'join' | 'qr-join' | 'host-lobby' | 'host-game' | 'player-game'>('join');
   const [roomCode, setRoomCode] = createSignal<string>('');
   const [playerId, setPlayerId] = createSignal<string>('');
   const [playerType, setPlayerType] = createSignal<'host' | 'controller'>('controller');
@@ -23,6 +24,20 @@ export const App = () => {
   const [gameInProgress, setGameInProgress] = createSignal(false);
   const [latency, setLatency] = createSignal(0);
   const [joinError, setJoinError] = createSignal<string>('');
+  const [qrCode, setQrCode] = createSignal<string | null>(null);
+
+  // Check for QR code in URL query parameters and set view accordingly
+  createEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const codeParam = searchParams.get('code');
+    if (codeParam && codeParam.trim()) {
+      setQrCode(codeParam.toUpperCase());
+      setView('qr-join');
+    } else {
+      setQrCode(null);
+      setView('join');
+    }
+  });
 
   // Initialize WebSocket and routing based on URL
   createEffect(() => {
@@ -148,6 +163,9 @@ export const App = () => {
       <Switch>
         <Match when={view() === 'join'}>
           <PlayerJoin onJoin={handlePlayerJoin} onHostCreate={handleHostCreate} connected={connected()} joinError={joinError()} />
+        </Match>
+        <Match when={view() === 'qr-join'}>
+          <QRJoin code={qrCode()!} onJoin={handlePlayerJoin} connected={connected()} joinError={joinError()} />
         </Match>
         <Match when={view() === 'host-lobby'}>
           <HostLobby

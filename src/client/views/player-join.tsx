@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show } from 'solid-js';
+import { createSignal, Show } from 'solid-js';
 
 interface PlayerJoinProps {
   onJoin: (code: string, name?: string) => void;
@@ -10,27 +10,6 @@ interface PlayerJoinProps {
 export const PlayerJoin = (props: PlayerJoinProps) => {
   const [code, setCode] = createSignal('');
   const [name, setName] = createSignal('');
-  const [autoJoinPending, setAutoJoinPending] = createSignal(false);
-  const [autoJoinCode, setAutoJoinCode] = createSignal<string | null>(null);
-
-  // Check for code in URL query parameter
-  createEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    const codeParam = searchParams.get('code');
-    if (codeParam && codeParam.trim()) {
-      setCode(codeParam.toUpperCase());
-      setAutoJoinCode(codeParam.toUpperCase());
-      setAutoJoinPending(true);
-    }
-  });
-
-  // Auto-join once WebSocket is connected AND user has entered a name
-  createEffect(() => {
-    if (autoJoinPending() && props.connected && autoJoinCode() && name().trim()) {
-      props.onJoin(autoJoinCode()!, name().trim());
-      setAutoJoinPending(false);
-    }
-  });
 
   const handleSubmit = () => {
     if (code().trim() && name().trim()) {
@@ -42,31 +21,15 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
     }
   };
 
-  // Determine if we're waiting for name in auto-join flow
-  const isWaitingForNameToAutoJoin = () => autoJoinPending() && autoJoinCode() && props.connected && !name().trim();
-  
-  // Determine connection status message
-  const getConnectionStatus = () => {
-    if (!props.connected) {
-      return 'Connecting...';
-    }
-    return '';
-  };
-
   return (
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 2rem; padding: 2rem;">
       <h1>Ideocon</h1>
 
       {/* Connection Status and Error Messages */}
       <div style="height: 3rem; display: flex; flex-direction: column; justify-content: center; gap: 0.5rem; text-align: center;">
-        <Show when={getConnectionStatus()}>
+        <Show when={!props.connected}>
           <div style="color: #666; font-size: 0.9rem;">
-            {getConnectionStatus()}
-          </div>
-        </Show>
-        <Show when={isWaitingForNameToAutoJoin()}>
-          <div style="color: #007bff; font-size: 0.9rem; font-style: italic;">
-            Enter your name to join
+            Connecting...
           </div>
         </Show>
         <Show when={props.joinError}>
