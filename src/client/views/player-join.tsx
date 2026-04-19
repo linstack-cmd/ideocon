@@ -1,13 +1,14 @@
 import { createSignal, createEffect } from 'solid-js';
 
 interface PlayerJoinProps {
-  onJoin: (code: string) => void;
+  onJoin: (code: string, name?: string) => void;
   onHostCreate: () => void;
   connected?: boolean;
 }
 
 export const PlayerJoin = (props: PlayerJoinProps) => {
   const [code, setCode] = createSignal('');
+  const [name, setName] = createSignal('');
   const [autoJoinPending, setAutoJoinPending] = createSignal(false);
   const [autoJoinCode, setAutoJoinCode] = createSignal<string | null>(null);
 
@@ -22,17 +23,17 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
     }
   });
 
-  // Auto-join once WebSocket is connected
+  // Auto-join once WebSocket is connected AND user has entered a name
   createEffect(() => {
-    if (autoJoinPending() && props.connected && autoJoinCode()) {
-      props.onJoin(autoJoinCode()!);
+    if (autoJoinPending() && props.connected && autoJoinCode() && name().trim()) {
+      props.onJoin(autoJoinCode()!, name().trim());
       setAutoJoinPending(false);
     }
   });
 
   const handleSubmit = () => {
-    if (code().trim()) {
-      props.onJoin(code().toUpperCase());
+    if (code().trim() && name().trim()) {
+      props.onJoin(code().toUpperCase(), name().trim());
     }
   };
 
@@ -45,6 +46,15 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
           <h2 style="margin: 0 0 1rem 0; text-align: center;">Player</h2>
           <input
             type="text"
+            placeholder="Enter your name"
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+            maxlength="20"
+            style="padding: 0.5rem; font-size: 1rem; width: 200px; text-align: center; display: block; margin-bottom: 0.5rem;"
+          />
+          <input
+            type="text"
             placeholder="Enter room code"
             value={code()}
             onInput={(e) => setCode(e.currentTarget.value.toUpperCase())}
@@ -53,7 +63,20 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
           />
           <button
             onclick={handleSubmit}
-            style="display: block; margin-top: 1rem; padding: 0.75rem 1.5rem; font-size: 1.25rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%;"
+            disabled={!code().trim() || !name().trim()}
+            style={{
+              display: 'block',
+              'margin-top': '1rem',
+              padding: '0.75rem 1.5rem',
+              'font-size': '1.25rem',
+              background: '#007bff',
+              color: 'white',
+              border: 'none',
+              'border-radius': '4px',
+              cursor: 'pointer',
+              width: '100%',
+              opacity: !code().trim() || !name().trim() ? 0.5 : 1,
+            }}
           >
             Join Game
           </button>

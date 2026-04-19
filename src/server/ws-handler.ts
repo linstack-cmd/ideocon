@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/types.js';
 import { RoomManager } from './room-manager.js';
+import { GAMES } from '../shared/types.js';
 
 export class WebSocketHandler {
   private ws: WebSocket;
@@ -40,6 +41,12 @@ export class WebSocketHandler {
         case 'pong':
           // Keep-alive response
           break;
+        case 'start_game':
+          this.handleStartGame(message);
+          break;
+        case 'ping':
+          this.handlePing(message);
+          break;
       }
     } catch (err) {
       console.error('Error handling message:', err);
@@ -47,7 +54,7 @@ export class WebSocketHandler {
   }
 
   private handleJoin(message: Extract<ClientMessage, { type: 'join' }>): void {
-    const { roomCode, playerType, sessionToken } = message;
+    const { roomCode, playerType, sessionToken, name } = message;
 
     let actualRoomCode: string;
 
@@ -58,7 +65,7 @@ export class WebSocketHandler {
       actualRoomCode = roomCode || '';
     }
 
-    const result = this.roomManager.joinRoom(this.ws, actualRoomCode, playerType, sessionToken);
+    const result = this.roomManager.joinRoom(this.ws, actualRoomCode, playerType, sessionToken, name);
 
     if (!result.ok) {
       this.roomManager.sendToConnection(this.ws, {
@@ -77,6 +84,7 @@ export class WebSocketHandler {
       id: p.id,
       playerType: p.playerType,
       joinedAt: p.joinedAt,
+      name: p.name,
     }));
 
     this.roomManager.sendToConnection(this.ws, {
@@ -85,9 +93,15 @@ export class WebSocketHandler {
       playerId: result.playerId!,
       playerType,
       players: playerInfoList,
+      gameInProgress: result.room!.gameInProgress,
     });
 
     // Notify other clients in the room about the new player
+    // Use the stored player's name (which is trimmed by joinRoom)
+    const newPlayer = playerType === 'host' 
+      ? result.room!.host! 
+      : result.room!.players.find((p) => p.id === result.playerId!);
+    
     this.roomManager.broadcastToRoom(
       actualRoomCode,
       {
@@ -97,6 +111,7 @@ export class WebSocketHandler {
           id: result.playerId!,
           playerType,
           joinedAt: Date.now(),
+          name: newPlayer?.name,
         },
       },
       this.ws
@@ -136,6 +151,47 @@ export class WebSocketHandler {
         });
       }
     }
+  }
+
+  private handleStartGame(message: Extract<ClientMessage, { type: 'start_game' }>): void {
+    if (!this.currentRoomCode) {
+      return;
+    }
+
+    const { gameId } = message;
+    const room = this.roomManager.getRoom(this.currentRoomCode);
+    
+    if (!room) {
+      return;
+    }
+
+    // Validate that the sender is the host
+    const playerId = this.roomManager.getPlayerIdForConnection(this.ws);
+    if (!room.host || room.host.id !== playerId) {
+      return;
+    }
+
+    // Validate that the gameId exists in the catalog
+    if (!GAMES.find((g) => g.id === gameId)) {
+      return;
+    }
+
+    const success = this.roomManager.startGame(this.currentRoomCode, gameId);
+
+    if (success) {
+      this.roomManager.broadcastToRoom(this.currentRoomCode, {
+        type: 'game_started',
+        gameId,
+      });
+    }
+  }
+
+  private handlePing(message: Extract<ClientMessage, { type: 'ping' }>): void {
+    this.roomManager.sendToConnection(this.ws, {
+      type: 'pong',
+      id: message.id,
+      timestamp: message.timestamp,
+    });
   }
 
   private checkRateLimit(): boolean {

@@ -13,7 +13,8 @@ export class RoomManager {
       code,
       host: null,
       players: [],
-      gameId: 'tug-of-war',
+      gameId: null,
+      gameInProgress: false,
       createdAt: Date.now(),
     });
     return code;
@@ -23,7 +24,8 @@ export class RoomManager {
     ws: WebSocket,
     roomCode: string,
     playerType: 'host' | 'controller',
-    sessionToken?: string
+    sessionToken?: string,
+    name?: string
   ): { ok: boolean; error?: string; room?: RoomState; playerId?: string } {
     const room = this.rooms.get(roomCode);
     if (!room) {
@@ -37,6 +39,7 @@ export class RoomManager {
       playerType,
       connectionId: playerId,
       joinedAt: Date.now(),
+      name: name && name.trim() ? name.trim() : undefined,
     };
 
     if (playerType === 'host') {
@@ -82,6 +85,16 @@ export class RoomManager {
 
   getRoom(roomCode: string): RoomState | null {
     return this.rooms.get(roomCode) || null;
+  }
+
+  startGame(roomCode: string, gameId: string): boolean {
+    const room = this.rooms.get(roomCode);
+    if (!room) {
+      return false;
+    }
+    room.gameId = gameId;
+    room.gameInProgress = true;
+    return true;
   }
 
   getRoomForConnection(ws: WebSocket): RoomState | null {

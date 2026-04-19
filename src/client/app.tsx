@@ -16,8 +16,12 @@ export const App = () => {
   const [view, setView] = createSignal<'join' | 'host-lobby' | 'host-game' | 'player-game'>('join');
   const [roomCode, setRoomCode] = createSignal<string>('');
   const [playerId, setPlayerId] = createSignal<string>('');
+  const [playerType, setPlayerType] = createSignal<'host' | 'controller'>('controller');
   const [players, setPlayers] = createSignal<any[]>([]);
   const [gameState, setGameState] = createSignal<any>(null);
+  const [selectedGameId, setSelectedGameId] = createSignal<string | null>(null);
+  const [gameInProgress, setGameInProgress] = createSignal(false);
+  const [latency, setLatency] = createSignal(0);
 
   // Initialize WebSocket and routing based on URL
   createEffect(() => {
@@ -28,13 +32,19 @@ export const App = () => {
         case 'join_ok':
           setRoomCode(msg.roomCode);
           setPlayerId(msg.playerId);
+          setPlayerType(msg.playerType);
           setPlayers(msg.players);
+          setGameInProgress(msg.gameInProgress);
 
           // Determine view based on our own player type from the response
           if (msg.playerType === 'host') {
             setView('host-lobby');
           } else {
-            setView('player-game');
+            if (msg.gameInProgress) {
+              setView('player-game');
+            } else {
+              setView('player-game');
+            }
           }
           break;
 
@@ -47,6 +57,15 @@ export const App = () => {
 
         case 'player_left':
           setPlayers((prev) => prev.filter((p) => p.id !== msg.playerId));
+          break;
+
+        case 'game_started':
+          setSelectedGameId(msg.gameId);
+          setGameInProgress(true);
+          // Transition host to game view
+          if (playerType() === 'host') {
+            setView('host-game');
+          }
           break;
 
         case 'game_event':
@@ -62,7 +81,12 @@ export const App = () => {
       }
     };
 
+    const latencyHandler = (l: number) => {
+      setLatency(l);
+    };
+
     client.onMessage(messageHandler);
+    client.onLatency(latencyHandler);
     
     // Set up connection state tracking with polling
     const connectionCheckInterval = setInterval(() => {
@@ -86,20 +110,29 @@ export const App = () => {
     }
   };
 
-  const handlePlayerJoin = async (code: string) => {
+  const handlePlayerJoin = async (code: string, name?: string) => {
     const client = ws();
     if (client) {
-      client.send({ type: 'join', roomCode: code, playerType: 'controller' });
+      client.send({ type: 'join', roomCode: code, playerType: 'controller', name });
+    }
+  };
+
+  const handleStartGame = (gameId: string) => {
+    const client = ws();
+    if (client) {
+      setSelectedGameId(gameId);
+      client.send({ type: 'start_game', gameId });
     }
   };
 
   const handleGameInput = (gameEvent: any) => {
     const client = ws();
-    if (client) {
+    const gameId = selectedGameId();
+    if (client && gameId) {
       client.send({
         type: 'input',
         gameEvent: {
-          gameId: 'tug-of-war',
+          gameId,
           ...gameEvent,
         },
       });
@@ -116,14 +149,18 @@ export const App = () => {
           <HostLobby
             roomCode={roomCode()}
             players={players()}
-            onStartGame={() => setView('host-game')}
+            onStartGame={handleStartGame}
           />
         </Match>
         <Match when={view() === 'host-game'}>
           <HostGame gameState={gameState()} players={players()} />
         </Match>
         <Match when={view() === 'player-game'}>
-          <PlayerGame onInput={handleGameInput} />
+          <PlayerGame 
+            onInput={handleGameInput} 
+            gameInProgress={gameInProgress()}
+            latency={latency()}
+          />
         </Match>
       </Switch>
     </div>
