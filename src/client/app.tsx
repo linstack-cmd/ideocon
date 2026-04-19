@@ -3,10 +3,10 @@ import { useNavigate, useParams } from '@solidjs/router';
 import { WebSocketClient } from './ws-client.js';
 import type { ServerMessage } from '../shared/types.js';
 import { HostLobby } from './views/host-lobby.js';
-import { HostGame } from './views/host-game.js';
 import { PlayerJoin } from './views/player-join.js';
 import { QRJoin } from './views/qr-join.js';
-import { PlayerGame } from './views/player-game.js';
+import { ControllerDispatcher } from './components/games/controller-dispatcher.js';
+import { HostDisplayDispatcher } from './components/games/host-display-dispatcher.js';
 
 export const App = () => {
   const navigate = useNavigate();
@@ -175,12 +175,17 @@ export const App = () => {
           />
         </Match>
         <Match when={view() === 'host-game'}>
-          <HostGame gameState={gameState()} players={players()} />
+          <HostDisplayDispatcher 
+            gameId={selectedGameId()}
+            gameState={gameState()} 
+            players={players()} 
+          />
         </Match>
         <Match when={view() === 'player-game'}>
-          <PlayerGame 
-            onInput={handleGameInput} 
+          <ControllerDispatcher 
+            gameId={selectedGameId()}
             gameInProgress={gameInProgress()}
+            onInput={handleGameInput}
             latency={latency()}
           />
         </Match>

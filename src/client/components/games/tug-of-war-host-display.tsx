@@ -1,11 +1,13 @@
+// Tug of War host display - what the big screen shows
+
 import { createSignal, createEffect, For } from 'solid-js';
 
-interface HostGameProps {
+interface TugOfWarHostDisplayProps {
   gameState: any;
   players: any[];
 }
 
-export const HostGame = (props: HostGameProps) => {
+export const TugOfWarHostDisplay = (props: TugOfWarHostDisplayProps) => {
   const [ropePosition, setRopePosition] = createSignal(0); // -100 to 100
   const [tapCount, setTapCount] = createSignal(0);
 
