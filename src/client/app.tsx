@@ -30,13 +30,11 @@ export const App = () => {
           setPlayerId(msg.playerId);
           setPlayers(msg.players);
 
-          // Determine view based on whether we're host or player
-          const isHost = msg.players.some((p) => p.playerType === 'host');
-          if (isHost && msg.players[0]?.playerType === 'host') {
-            // We are host
+          // Determine view based on our own player type
+          const myPlayer = msg.players.find((p) => p.id === msg.playerId);
+          if (myPlayer?.playerType === 'host') {
             setView('host-lobby');
           } else {
-            // We are player
             setView('player-game');
           }
           break;
@@ -104,7 +102,7 @@ export const App = () => {
     <div style="width: 100%; height: 100%;">
       <Switch>
         <Match when={view() === 'join'}>
-          <PlayerJoin onJoin={handlePlayerJoin} />
+          <PlayerJoin onJoin={handlePlayerJoin} onHostCreate={handleHostCreate} />
         </Match>
         <Match when={view() === 'host-lobby'}>
           <HostLobby

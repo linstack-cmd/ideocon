@@ -117,24 +117,27 @@ export class WebSocketHandler {
       return;
     }
 
-    // Relay game input to all clients in the room
-    this.roomManager.broadcastToRoom(this.currentRoomCode, {
-      type: 'game_event',
-      event: message.gameEvent,
-    });
+    // Relay game input to all clients in the room except the sender
+    this.roomManager.broadcastToRoom(
+      this.currentRoomCode,
+      {
+        type: 'game_event',
+        event: message.gameEvent,
+      },
+      this.ws
+    );
   }
 
   private handleClose(): void {
     if (this.currentRoomCode) {
+      // Capture playerId before leaveRoom deletes it from the map
+      const playerId = this.roomManager.getPlayerIdForConnection(this.ws);
       const roomCode = this.roomManager.leaveRoom(this.ws);
-      if (roomCode) {
-        const playerId = this.roomManager.getPlayerIdForConnection(this.ws);
-        if (playerId) {
-          this.roomManager.broadcastToRoom(roomCode, {
-            type: 'player_left',
-            playerId,
-          });
-        }
+      if (roomCode && playerId) {
+        this.roomManager.broadcastToRoom(roomCode, {
+          type: 'player_left',
+          playerId,
+        });
       }
     }
   }

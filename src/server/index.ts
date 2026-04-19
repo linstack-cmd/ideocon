@@ -20,6 +20,7 @@ if (process.env.NODE_ENV !== 'production') {
   try {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
+      root: join(__dirname, '../client'),
       server: { middlewareMode: true },
       appType: 'spa',
     });
