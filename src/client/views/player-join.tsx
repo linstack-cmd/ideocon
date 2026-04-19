@@ -1,9 +1,10 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal, createEffect, Show } from 'solid-js';
 
 interface PlayerJoinProps {
   onJoin: (code: string, name?: string) => void;
   onHostCreate: () => void;
   connected?: boolean;
+  joinError?: string;
 }
 
 export const PlayerJoin = (props: PlayerJoinProps) => {
@@ -33,13 +34,47 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
 
   const handleSubmit = () => {
     if (code().trim() && name().trim()) {
+      // Only allow join if connected
+      if (!props.connected) {
+        return;
+      }
       props.onJoin(code().toUpperCase(), name().trim());
     }
+  };
+
+  // Determine if we're waiting for name in auto-join flow
+  const isWaitingForNameToAutoJoin = () => autoJoinPending() && autoJoinCode() && props.connected && !name().trim();
+  
+  // Determine connection status message
+  const getConnectionStatus = () => {
+    if (!props.connected) {
+      return 'Connecting...';
+    }
+    return '';
   };
 
   return (
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 2rem; padding: 2rem;">
       <h1>Ideocon</h1>
+
+      {/* Connection Status and Error Messages */}
+      <div style="height: 3rem; display: flex; flex-direction: column; justify-content: center; gap: 0.5rem; text-align: center;">
+        <Show when={getConnectionStatus()}>
+          <div style="color: #666; font-size: 0.9rem;">
+            {getConnectionStatus()}
+          </div>
+        </Show>
+        <Show when={isWaitingForNameToAutoJoin()}>
+          <div style="color: #007bff; font-size: 0.9rem; font-style: italic;">
+            Enter your name to join
+          </div>
+        </Show>
+        <Show when={props.joinError}>
+          <div style="color: #dc3545; font-size: 0.9rem; font-weight: bold;">
+            Error: {props.joinError}
+          </div>
+        </Show>
+      </div>
       
       <div style="display: flex; flex-direction: column; gap: 1rem; align-items: center;">
         <div>
@@ -63,7 +98,7 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
           />
           <button
             onclick={handleSubmit}
-            disabled={!code().trim() || !name().trim()}
+            disabled={!code().trim() || !name().trim() || !props.connected}
             style={{
               display: 'block',
               'margin-top': '1rem',
@@ -73,9 +108,9 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
               color: 'white',
               border: 'none',
               'border-radius': '4px',
-              cursor: 'pointer',
+              cursor: !code().trim() || !name().trim() || !props.connected ? 'not-allowed' : 'pointer',
               width: '100%',
-              opacity: !code().trim() || !name().trim() ? 0.5 : 1,
+              opacity: !code().trim() || !name().trim() || !props.connected ? 0.5 : 1,
             }}
           >
             Join Game
@@ -90,7 +125,18 @@ export const PlayerJoin = (props: PlayerJoinProps) => {
           <h2 style="margin: 0 0 1rem 0; text-align: center;">Host</h2>
           <button
             onclick={() => props.onHostCreate()}
-            style="padding: 0.75rem 1.5rem; font-size: 1.25rem; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; width: 200px;"
+            disabled={!props.connected}
+            style={{
+              padding: '0.75rem 1.5rem',
+              'font-size': '1.25rem',
+              background: '#28a745',
+              color: 'white',
+              border: 'none',
+              'border-radius': '4px',
+              cursor: !props.connected ? 'not-allowed' : 'pointer',
+              width: '200px',
+              opacity: !props.connected ? 0.5 : 1,
+            }}
           >
             Create Game
           </button>

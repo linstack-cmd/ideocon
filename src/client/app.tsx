@@ -22,6 +22,7 @@ export const App = () => {
   const [selectedGameId, setSelectedGameId] = createSignal<string | null>(null);
   const [gameInProgress, setGameInProgress] = createSignal(false);
   const [latency, setLatency] = createSignal(0);
+  const [joinError, setJoinError] = createSignal<string>('');
 
   // Initialize WebSocket and routing based on URL
   createEffect(() => {
@@ -77,6 +78,9 @@ export const App = () => {
 
         case 'join_error':
           console.error('Join error:', msg.reason);
+          setJoinError(msg.reason);
+          // Clear error after 5 seconds
+          setTimeout(() => setJoinError(''), 5000);
           break;
       }
     };
@@ -143,7 +147,7 @@ export const App = () => {
     <div style="width: 100%; height: 100%;">
       <Switch>
         <Match when={view() === 'join'}>
-          <PlayerJoin onJoin={handlePlayerJoin} onHostCreate={handleHostCreate} connected={connected()} />
+          <PlayerJoin onJoin={handlePlayerJoin} onHostCreate={handleHostCreate} connected={connected()} joinError={joinError()} />
         </Match>
         <Match when={view() === 'host-lobby'}>
           <HostLobby
