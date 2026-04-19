@@ -32,7 +32,7 @@ export const HostLobby = (props: HostLobbyProps) => {
           <For each={props.players}>
             {(player) => (
               <li style="padding: 0.5rem; background: #e9ecef; margin: 0.25rem; border-radius: 4px;">
-                {player.playerType === 'host' ? '👑 Host' : '🎮 Player'} ({player.id.substring(0, 8)})
+                🎮 Player ({player.id.substring(0, 8)})
               </li>
             )}
           </For>

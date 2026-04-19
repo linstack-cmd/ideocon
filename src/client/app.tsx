@@ -30,9 +30,8 @@ export const App = () => {
           setPlayerId(msg.playerId);
           setPlayers(msg.players);
 
-          // Determine view based on our own player type
-          const myPlayer = msg.players.find((p) => p.id === msg.playerId);
-          if (myPlayer?.playerType === 'host') {
+          // Determine view based on our own player type from the response
+          if (msg.playerType === 'host') {
             setView('host-lobby');
           } else {
             setView('player-game');
@@ -40,7 +39,10 @@ export const App = () => {
           break;
 
         case 'player_joined':
-          setPlayers((prev) => [...prev, msg.playerInfo]);
+          // Only add controller-type players, not hosts
+          if (msg.playerInfo.playerType !== 'host') {
+            setPlayers((prev) => [...prev, msg.playerInfo]);
+          }
           break;
 
         case 'player_left':

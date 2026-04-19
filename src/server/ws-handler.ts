@@ -71,23 +71,19 @@ export class WebSocketHandler {
     this.currentRoomCode = actualRoomCode;
 
     // Send confirmation to the joining client
+    // Note: The players array contains only controllers, not the host.
+    // The host is conveyed via playerId and the client determines their role.
     const playerInfoList = result.room!.players.map((p) => ({
       id: p.id,
       playerType: p.playerType,
       joinedAt: p.joinedAt,
     }));
-    if (result.room!.host) {
-      playerInfoList.unshift({
-        id: result.room!.host.id,
-        playerType: 'host',
-        joinedAt: result.room!.host.joinedAt,
-      });
-    }
 
     this.roomManager.sendToConnection(this.ws, {
       type: 'join_ok',
       roomCode: actualRoomCode,
       playerId: result.playerId!,
+      playerType,
       players: playerInfoList,
     });
 

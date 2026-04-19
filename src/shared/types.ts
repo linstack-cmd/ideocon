@@ -6,7 +6,7 @@ export type ClientMessage =
   | { type: 'pong' };
 
 export type ServerMessage =
-  | { type: 'join_ok'; roomCode: string; playerId: string; players: PlayerInfo[] }
+  | { type: 'join_ok'; roomCode: string; playerId: string; playerType: 'host' | 'controller'; players: PlayerInfo[] }
   | { type: 'join_error'; reason: string }
   | { type: 'player_joined'; playerId: string; playerInfo: PlayerInfo }
   | { type: 'player_left'; playerId: string }
