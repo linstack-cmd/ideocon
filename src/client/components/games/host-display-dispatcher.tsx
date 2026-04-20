@@ -7,6 +7,7 @@ interface HostDisplayDispatcherProps {
   gameId: string | null;
   gameState: any;
   players: any[];
+  onBroadcastState?: (state: any) => void;
 }
 
 export const HostDisplayDispatcher = (props: HostDisplayDispatcherProps) => {
@@ -17,6 +18,7 @@ export const HostDisplayDispatcher = (props: HostDisplayDispatcherProps) => {
         <TugOfWarHostDisplay 
           gameState={props.gameState}
           players={props.players}
+          onBroadcastState={props.onBroadcastState}
         />
       </Match>
 

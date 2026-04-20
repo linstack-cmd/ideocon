@@ -25,6 +25,7 @@ export const App = () => {
   const [latency, setLatency] = createSignal(0);
   const [joinError, setJoinError] = createSignal<string>('');
   const [qrCode, setQrCode] = createSignal<string | null>(null);
+  const [playerTeam, setPlayerTeam] = createSignal<'red' | 'blue' | null>(null);
 
   // Check for QR code in URL query parameters and set view accordingly
   createEffect(() => {
@@ -51,6 +52,9 @@ export const App = () => {
           setPlayerType(msg.playerType);
           setPlayers(msg.players);
           setGameInProgress(msg.gameInProgress);
+          if (msg.team) {
+            setPlayerTeam(msg.team);
+          }
 
           // Determine view based on our own player type from the response
           if (msg.playerType === 'host') {
@@ -89,6 +93,10 @@ export const App = () => {
             ...prev,
             ...msg.event,
           }));
+          break;
+
+        case 'game_state':
+          setGameState(msg.state);
           break;
 
         case 'join_error':
@@ -158,6 +166,20 @@ export const App = () => {
     }
   };
 
+  const handleBroadcastGameState = (state: any) => {
+    const client = ws();
+    const gameId = selectedGameId();
+    if (client && gameId) {
+      client.send({
+        type: 'game_state',
+        state: {
+          gameId,
+          ...state,
+        },
+      });
+    }
+  };
+
   return (
     <div style="width: 100%; height: 100%;">
       <Switch>
@@ -178,7 +200,8 @@ export const App = () => {
           <HostDisplayDispatcher 
             gameId={selectedGameId()}
             gameState={gameState()} 
-            players={players()} 
+            players={players()}
+            onBroadcastState={handleBroadcastGameState}
           />
         </Match>
         <Match when={view() === 'player-game'}>
@@ -187,6 +210,7 @@ export const App = () => {
             gameInProgress={gameInProgress()}
             onInput={handleGameInput}
             latency={latency()}
+            team={playerTeam()}
           />
         </Match>
       </Switch>

@@ -47,6 +47,9 @@ export class WebSocketHandler {
         case 'ping':
           this.handlePing(message);
           break;
+        case 'game_state':
+          this.handleGameState(message);
+          break;
       }
     } catch (err) {
       console.error('Error handling message:', err);
@@ -85,6 +88,7 @@ export class WebSocketHandler {
       playerType: p.playerType,
       joinedAt: p.joinedAt,
       name: p.name,
+      team: p.team,
     }));
 
     this.roomManager.sendToConnection(this.ws, {
@@ -94,6 +98,7 @@ export class WebSocketHandler {
       playerType,
       players: playerInfoList,
       gameInProgress: result.room!.gameInProgress,
+      team: playerType === 'controller' ? result.room!.players.find(p => p.id === result.playerId!)?.team : undefined,
     });
 
     // Notify other clients in the room about the new player
@@ -112,6 +117,7 @@ export class WebSocketHandler {
           playerType,
           joinedAt: Date.now(),
           name: newPlayer?.name,
+          team: newPlayer?.team,
         },
       },
       this.ws
@@ -192,6 +198,27 @@ export class WebSocketHandler {
       id: message.id,
       timestamp: message.timestamp,
     });
+  }
+
+  private handleGameState(message: Extract<ClientMessage, { type: 'game_state' }>): void {
+    if (!this.currentRoomCode) {
+      return;
+    }
+
+    const room = this.roomManager.getRoom(this.currentRoomCode);
+    if (!room) {
+      return;
+    }
+
+    // Relay game state to all clients in the room except the sender
+    this.roomManager.broadcastToRoom(
+      this.currentRoomCode,
+      {
+        type: 'game_state',
+        state: message.state,
+      },
+      this.ws
+    );
   }
 
   private checkRateLimit(): boolean {

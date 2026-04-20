@@ -5,10 +5,11 @@ export type ClientMessage =
   | { type: 'input'; gameEvent: GameInputEvent }
   | { type: 'pong' }
   | { type: 'start_game'; gameId: string }
-  | { type: 'ping'; id: string; timestamp: number };
+  | { type: 'ping'; id: string; timestamp: number }
+  | { type: 'game_state'; state: GameState };
 
 export type ServerMessage =
-  | { type: 'join_ok'; roomCode: string; playerId: string; playerType: 'host' | 'controller'; players: PlayerInfo[]; gameInProgress: boolean }
+  | { type: 'join_ok'; roomCode: string; playerId: string; playerType: 'host' | 'controller'; players: PlayerInfo[]; gameInProgress: boolean; team?: 'red' | 'blue' }
   | { type: 'join_error'; reason: string }
   | { type: 'player_joined'; playerId: string; playerInfo: PlayerInfo }
   | { type: 'player_left'; playerId: string }
@@ -34,6 +35,7 @@ export interface Player {
   connectionId: string;
   joinedAt: number;
   name?: string;
+  team?: 'red' | 'blue'; // only for controllers
 }
 
 export interface PlayerInfo {
@@ -41,6 +43,7 @@ export interface PlayerInfo {
   playerType: 'host' | 'controller';
   joinedAt: number;
   name?: string;
+  team?: 'red' | 'blue'; // only for controllers
 }
 
 export type GameInputEvent = {

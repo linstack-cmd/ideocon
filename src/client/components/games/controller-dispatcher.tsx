@@ -9,6 +9,7 @@ interface ControllerDispatcherProps {
   gameInProgress: boolean;
   onInput: (event: any) => void;
   latency?: number;
+  team?: 'red' | 'blue' | null;
 }
 
 export const ControllerDispatcher = (props: ControllerDispatcherProps) => {
@@ -24,6 +25,7 @@ export const ControllerDispatcher = (props: ControllerDispatcherProps) => {
         <TugOfWarController 
           onInput={props.onInput} 
           latency={props.latency}
+          team={props.team}
         />
       </Match>
 

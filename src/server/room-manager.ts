@@ -48,6 +48,10 @@ export class RoomManager {
       }
       room.host = player;
     } else {
+      // Assign team based on current team balance (assign to whichever has fewer players)
+      const redCount = room.players.filter(p => p.team === 'red').length;
+      const blueCount = room.players.filter(p => p.team === 'blue').length;
+      player.team = redCount <= blueCount ? 'red' : 'blue';
       room.players.push(player);
     }
 
