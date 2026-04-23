@@ -186,16 +186,16 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 if (bestAnchor !== null && bestAnchor !== undefined) {
                   // Transition to swinging
                   const selectedAnchor: AnchorPoint = bestAnchor;
-                  const dx = selectedAnchor.x - player.position;
-                  const dy = selectedAnchor.y - player.y;
+                  const dx = player.position - selectedAnchor.x;
+                  const dy = player.y - selectedAnchor.y;
                   const actualDistance = Math.sqrt(dx * dx + dy * dy);
                   
                   // Calculate initial angle
                   const initialAngle = Math.atan2(dx, dy);
                   
                   // Project current velocity onto tangent of swing
-                  const tangentX = -Math.sin(initialAngle);
-                  const tangentY = Math.cos(initialAngle);
+                  const tangentX = Math.cos(initialAngle);
+                  const tangentY = -Math.sin(initialAngle);
                   const projectedVel = player.velocity * tangentX + player.vyy * tangentY;
                   
                   player.state = 'swinging';
