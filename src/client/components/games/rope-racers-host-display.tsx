@@ -42,8 +42,8 @@ const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
 const GROUND_LEVEL = 600;
-const ANCHOR_MIN_Y = 300; // Anchors spawn with room for swing arc clearance
-const ANCHOR_MAX_Y = 420; // Anchors spawn with room for swing arc clearance
+const ANCHOR_MIN_Y = 150; // Anchors spawn with room for swing arc clearance
+const ANCHOR_MAX_Y = 280; // Anchors spawn with room for swing arc clearance
 const ELIMINATION_Y = 900; // Players eliminated if they fall below this (safety net)
 const FLOOR_Y = GROUND_LEVEL;
 const PENDULUM_DAMPING = 0.98; // Apply each tick to angular velocity
@@ -74,7 +74,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     // Generate anchors from rightmostX to maxX if needed
     if (rightmostX < maxX) {
       let currentX = rightmostX > 0 ? rightmostX : INITIAL_ANCHOR_DISTANCE;
-      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : 360;
+      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : 215;
       
       while (currentX < maxX) {
         const minGap = 150;
@@ -127,52 +127,25 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     const anchors = generateAnchorsInRange(0, ANCHOR_SPAWN_AHEAD, []);
     setAnchorPoints(anchors);
     
-    // Initialize player states - players start hanging from an anchor
+    // Initialize player states - players start flying, not hanging
     const states = new Map<string, PlayerState>();
-    props.players.forEach((player, index) => {
-      // Find a starting anchor for this player (use early anchors for multiple players)
-      let startingAnchor: AnchorPoint | null = null;
-      if (anchors.length > 0) {
-        // Use different anchors for different players (index 0 uses first, index 1 uses second, etc.)
-        const anchorIndex = Math.min(index, anchors.length - 1);
-        startingAnchor = anchors[anchorIndex];
-      }
-
-      if (startingAnchor) {
-        // Player starts hanging from an anchor, swinging
-        states.set(player.id, {
-          id: player.id,
-          name: player.name || `Player ${player.id.substring(0, 4)}`,
-          position: startingAnchor.x,
-          velocity: 0,
-          y: startingAnchor.y + ROPE_LENGTH,
-          vyy: 0,
-          state: 'swinging',
-          grabbing: true,
-          anchorId: startingAnchor.id,
-          angle: 0, // Hanging straight down
-          angularVelocity: 0.15, // Small initial swing to get momentum (reduced for slower physics)
-          ropeLength: ROPE_LENGTH,
-          eliminated: false,
-        });
-      } else {
-        // Fallback: if no anchors, start on ground
-        states.set(player.id, {
-          id: player.id,
-          name: player.name || `Player ${player.id.substring(0, 4)}`,
-          position: 0,
-          velocity: 0,
-          y: GROUND_LEVEL,
-          vyy: 0,
-          state: 'flying',
-          grabbing: false,
-          anchorId: null,
-          angle: 0,
-          angularVelocity: 0,
-          ropeLength: ROPE_LENGTH,
-          eliminated: false,
-        });
-      }
+    props.players.forEach((player) => {
+      // All players start flying at the left edge with velocity toward first anchor
+      states.set(player.id, {
+        id: player.id,
+        name: player.name || `Player ${player.id.substring(0, 4)}`,
+        position: 0,
+        velocity: 5,
+        y: 200,
+        vyy: 0,
+        state: 'flying',
+        grabbing: false,
+        anchorId: null,
+        angle: 0,
+        angularVelocity: 0,
+        ropeLength: ROPE_LENGTH,
+        eliminated: false,
+      });
     });
     setPlayerStates(states);
     
