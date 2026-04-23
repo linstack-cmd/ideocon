@@ -273,17 +273,28 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   // Calculate initial angle
                   const initialAngle = Math.atan2(dx, dy);
                   
-                  // Project current velocity onto tangent of swing
+                  // Energy-preserving grab: convert full kinetic energy to rotational energy
+                  // Calculate full speed (magnitude of velocity vector)
+                  const speed = Math.sqrt(player.velocity * player.velocity + player.vyy * player.vyy);
+                  
+                  // Get the sign of rotation from the tangential component
                   const tangentX = Math.cos(initialAngle);
                   const tangentY = -Math.sin(initialAngle);
-                  const projectedVel = player.velocity * tangentX + player.vyy * tangentY;
+                  const tangentialComponent = player.velocity * tangentX + player.vyy * tangentY;
                   
+                  // Determine sign: use tangential component sign, fall back to horizontal velocity if tangential is negligible
+                  let sign = Math.sign(tangentialComponent);
+                  if (Math.abs(tangentialComponent) < 0.01) {
+                    sign = Math.sign(player.velocity);
+                  }
+                  
+                  // Energy-preserving conversion: ω = sign * speed / R
                   player.state = 'swinging';
                   player.grabbing = true;
                   player.anchorId = selectedAnchor.id;
                   player.angle = initialAngle;
                   player.ropeLength = actualDistance; // FIX 1: Set rope length to actual distance to prevent teleport
-                  player.angularVelocity = projectedVel / actualDistance;
+                  player.angularVelocity = sign * speed / actualDistance;
                 }
               } else if (event.action === 'release' && player.state === 'swinging') {
                 // Release rope
