@@ -8,6 +8,7 @@ interface RopeRacersHostDisplayProps {
   onClearEvents?: () => void;
   players: any[];
   onBroadcastState?: (state: any) => void;
+  onPlayAgain?: () => void;
 }
 
 interface GameEvent {
@@ -46,7 +47,6 @@ const ANCHOR_MIN_Y = 150; // Anchors spawn with room for swing arc clearance
 const ANCHOR_MAX_Y = 280; // Anchors spawn with room for swing arc clearance
 const ELIMINATION_Y = 900; // Players eliminated if they fall below this (safety net)
 const FLOOR_Y = GROUND_LEVEL;
-const PENDULUM_DAMPING = 0.98; // Apply each tick to angular velocity
 const ANCHOR_SPAWN_AHEAD = 1500; // Spawn anchors this far ahead of camera
 const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
@@ -281,9 +281,6 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               const angularAccel = -(g / ropeLen) * Math.sin(player.angle);
               player.angularVelocity += angularAccel;
               
-              // Apply pendulum damping to prevent energy growth
-              player.angularVelocity *= PENDULUM_DAMPING;
-              
               player.angle += player.angularVelocity;
 
               // Clamp angle to prevent wrapping
@@ -486,7 +483,10 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 48px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(winner()!, canvas.width / 2, canvas.height / 2);
+      ctx.fillText(winner()!, canvas.width / 2, canvas.height / 2 - 40);
+
+      ctx.font = 'bold 20px Arial';
+      ctx.fillText('(Press Play Again button below)', canvas.width / 2, canvas.height / 2 + 30);
     }
   };
 
@@ -500,7 +500,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1rem; padding: 1rem; background: #1a1a1a;">
       <h1 style="color: white; margin: 0;">Rope Racers</h1>
 
-      <div style="position: relative; width: 100%; height: calc(100% - 60px);">
+      <div style="position: relative; width: 100%; height: calc(100% - 120px);">
         <canvas
           ref={canvasRef}
           width={1200}
@@ -520,6 +520,27 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       <div style="color: white; font-size: 0.9rem; text-align: center;">
         Players: {playerStates().size}
       </div>
+
+      {winner() && (
+        <button
+          onClick={() => props.onPlayAgain?.()}
+          style={{
+            padding: '0.75rem 2rem',
+            'font-size': '1.1rem',
+            'font-weight': 'bold',
+            background: '#4CAF50',
+            color: 'white',
+            border: 'none',
+            'border-radius': '4px',
+            cursor: 'pointer',
+            transition: 'background 0.2s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = '#45a049')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = '#4CAF50')}
+        >
+          Play Again
+        </button>
+      )}
     </div>
   );
 };

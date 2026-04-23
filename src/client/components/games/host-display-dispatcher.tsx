@@ -11,6 +11,7 @@ interface HostDisplayDispatcherProps {
   onClearEvents?: () => void;
   players: any[];
   onBroadcastState?: (state: any) => void;
+  onPlayAgain?: () => void;
 }
 
 export const HostDisplayDispatcher = (props: HostDisplayDispatcherProps) => {
@@ -22,6 +23,7 @@ export const HostDisplayDispatcher = (props: HostDisplayDispatcherProps) => {
           gameState={props.gameState}
           players={props.players}
           onBroadcastState={props.onBroadcastState}
+          onPlayAgain={props.onPlayAgain}
         />
       </Match>
 
@@ -33,6 +35,7 @@ export const HostDisplayDispatcher = (props: HostDisplayDispatcherProps) => {
           onClearEvents={props.onClearEvents}
           players={props.players}
           onBroadcastState={props.onBroadcastState}
+          onPlayAgain={props.onPlayAgain}
         />
       </Match>
 

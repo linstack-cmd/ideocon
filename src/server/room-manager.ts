@@ -101,6 +101,16 @@ export class RoomManager {
     return true;
   }
 
+  resetGame(roomCode: string): boolean {
+    const room = this.rooms.get(roomCode);
+    if (!room) {
+      return false;
+    }
+    room.gameId = null;
+    room.gameInProgress = false;
+    return true;
+  }
+
   getRoomForConnection(ws: WebSocket): RoomState | null {
     const roomCode = this.connectionToRoom.get(ws);
     return roomCode ? this.rooms.get(roomCode) || null : null;

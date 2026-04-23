@@ -98,6 +98,19 @@ export const App = () => {
           setGameState(msg.state);
           break;
 
+        case 'game_reset':
+          // Reset game state and return to lobby
+          setGameInProgress(false);
+          setSelectedGameId(null);
+          setGameState(null);
+          setGameEvents([]);
+          if (playerType() === 'host') {
+            setView('host-lobby');
+          } else {
+            setView('player-game');
+          }
+          break;
+
         case 'join_error':
           console.error('Join error:', msg.reason);
           setJoinError(msg.reason);
@@ -179,6 +192,13 @@ export const App = () => {
     }
   };
 
+  const handlePlayAgain = () => {
+    const client = ws();
+    if (client) {
+      client.send({ type: 'reset_game' });
+    }
+  };
+
   return (
     <div style="width: 100%; height: 100%;">
       <Switch>
@@ -203,6 +223,7 @@ export const App = () => {
             onClearEvents={() => setGameEvents([])}
             players={players()}
             onBroadcastState={handleBroadcastGameState}
+            onPlayAgain={handlePlayAgain}
           />
         </Match>
         <Match when={view() === 'player-game'}>

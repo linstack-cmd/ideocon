@@ -6,6 +6,7 @@ interface TugOfWarHostDisplayProps {
   gameState: any;
   players: any[];
   onBroadcastState?: (state: any) => void;
+  onPlayAgain?: () => void;
 }
 
 export const TugOfWarHostDisplay = (props: TugOfWarHostDisplayProps) => {
@@ -118,16 +119,36 @@ export const TugOfWarHostDisplay = (props: TugOfWarHostDisplayProps) => {
       </div>
 
       {winner() && (
-        <div style={{
-          'font-size': '2rem',
-          'font-weight': 'bold',
-          color: winner() === 'Red Team Wins!' ? '#ff6b6b' : '#4ecdc4',
-          'margin-top': '2rem',
-          padding: '1rem',
-          background: '#f0f0f0',
-          'border-radius': '8px',
-        }}>
-          {winner()}
+        <div style="display: flex; flex-direction: column; gap: 1rem; align-items: center;">
+          <div style={{
+            'font-size': '2rem',
+            'font-weight': 'bold',
+            color: winner() === 'Red Team Wins!' ? '#ff6b6b' : '#4ecdc4',
+            'margin-top': '2rem',
+            padding: '1rem',
+            background: '#f0f0f0',
+            'border-radius': '8px',
+          }}>
+            {winner()}
+          </div>
+          <button
+            onClick={() => props.onPlayAgain?.()}
+            style={{
+              padding: '0.75rem 2rem',
+              'font-size': '1.1rem',
+              'font-weight': 'bold',
+              background: '#4CAF50',
+              color: 'white',
+              border: 'none',
+              'border-radius': '4px',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#45a049')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = '#4CAF50')}
+          >
+            Play Again
+          </button>
         </div>
       )}
     </div>

@@ -6,7 +6,8 @@ export type ClientMessage =
   | { type: 'pong' }
   | { type: 'start_game'; gameId: string }
   | { type: 'ping'; id: string; timestamp: number }
-  | { type: 'game_state'; state: GameState };
+  | { type: 'game_state'; state: GameState }
+  | { type: 'reset_game' };
 
 export type ServerMessage =
   | { type: 'join_ok'; roomCode: string; playerId: string; playerType: 'host' | 'controller'; players: PlayerInfo[]; gameInProgress: boolean; team?: 'red' | 'blue' }
@@ -17,7 +18,8 @@ export type ServerMessage =
   | { type: 'game_event'; event: GameEvent }
   | { type: 'game_started'; gameId: string }
   | { type: 'ping' }
-  | { type: 'pong'; id: string; timestamp: number };
+  | { type: 'pong'; id: string; timestamp: number }
+  | { type: 'game_reset' };
 
 export interface RoomState {
   code: string;

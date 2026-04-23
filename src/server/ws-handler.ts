@@ -44,6 +44,9 @@ export class WebSocketHandler {
         case 'start_game':
           this.handleStartGame(message);
           break;
+        case 'reset_game':
+          this.handleResetGame();
+          break;
         case 'ping':
           this.handlePing(message);
           break;
@@ -219,6 +222,32 @@ export class WebSocketHandler {
       },
       this.ws
     );
+  }
+
+  private handleResetGame(): void {
+    if (!this.currentRoomCode) {
+      return;
+    }
+
+    const room = this.roomManager.getRoom(this.currentRoomCode);
+    
+    if (!room) {
+      return;
+    }
+
+    // Validate that the sender is the host
+    const playerId = this.roomManager.getPlayerIdForConnection(this.ws);
+    if (!room.host || room.host.id !== playerId) {
+      return;
+    }
+
+    const success = this.roomManager.resetGame(this.currentRoomCode);
+
+    if (success) {
+      this.roomManager.broadcastToRoom(this.currentRoomCode, {
+        type: 'game_reset',
+      });
+    }
   }
 
   private checkRateLimit(): boolean {
