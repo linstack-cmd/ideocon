@@ -42,7 +42,6 @@ interface AnchorPoint {
 const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
-const ANCHOR_TIEBREAKER_WEIGHT = 0.05; // Tiebreaker when anchors are equally angled
 const GROUND_LEVEL = 600;
 const ANCHOR_MIN_Y = 150; // Anchors spawn with room for swing arc clearance
 const ANCHOR_MAX_Y = 280; // Anchors spawn with room for swing arc clearance
@@ -100,35 +99,106 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     return anchors.filter(a => a.x >= minX);
   };
 
-  // Find the best anchor for a player to grab (extracted for reuse)
+  // Find the best anchor for a player to grab (two-pass algorithm with safety filter)
   const findBestAnchorForPlayer = (player: PlayerState, anchors: AnchorPoint[]): AnchorPoint | null => {
-    let bestAnchor: AnchorPoint | null = null;
-    let bestScore = Infinity;
-
+    const IDEAL_FORWARD_DISTANCE = 250; // Midpoint of anchor gap range (150-350px)
+    
+    // Helper: check if an anchor is safe to swing from (won't crash into ground)
+    const isSafeAnchor = (anchor: AnchorPoint, playerPos: PlayerState): boolean => {
+      const dx = anchor.x - playerPos.position;
+      const dy = anchor.y - playerPos.y;
+      const ropeLength = Math.sqrt(dx * dx + dy * dy);
+      // Anchor is unsafe if the bottom of the swing arc would hit the ground
+      return anchor.y + ropeLength <= GROUND_LEVEL;
+    };
+    
+    // Helper: score a forward anchor by proximity to ideal forward distance
+    const scoreForwardAnchor = (anchor: AnchorPoint, playerPos: PlayerState): number => {
+      const horizontalDist = anchor.x - playerPos.position;
+      // Score: absolute deviation from ideal forward distance (lower is better)
+      return Math.abs(horizontalDist - IDEAL_FORWARD_DISTANCE);
+    };
+    
+    // Pass 1: Find safe forward anchors (ahead of player, within grab radius, safe to swing from)
+    const forwardCandidates: AnchorPoint[] = [];
+    
     anchors.forEach((anchor: AnchorPoint) => {
-      // Anchor must be ahead (positive x direction)
-      if (anchor.x < player.position) return;
-
+      // Must be ahead of the player
+      if (anchor.x <= player.position) return;
+      
       const dx = anchor.x - player.position;
       const dy = anchor.y - player.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-
+      
       // Must be within grab radius
       if (dist >= ANCHOR_GRAB_RADIUS) return;
-
-      // Score: blend forward angle and proximity
-      // score = (dist - dx) + dist * ANCHOR_TIEBREAKER_WEIGHT (lower is better)
-      // (dist - dx) heavily penalizes vertical anchors, preferring forward-angled ones
-      // dist * ANCHOR_TIEBREAKER_WEIGHT adds small distance bias as tiebreaker
-      const score = (dist - dx) + dist * ANCHOR_TIEBREAKER_WEIGHT;
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestAnchor = anchor;
-      }
+      
+      // Must be safe (won't crash into ground)
+      if (!isSafeAnchor(anchor, player)) return;
+      
+      forwardCandidates.push(anchor);
     });
-
-    return bestAnchor;
+    
+    // If we found safe forward anchors, pick the one closest to ideal forward distance
+    if (forwardCandidates.length > 0) {
+      let bestAnchor = forwardCandidates[0];
+      let bestScore = scoreForwardAnchor(bestAnchor, player);
+      
+      for (let i = 1; i < forwardCandidates.length; i++) {
+        const score = scoreForwardAnchor(forwardCandidates[i], player);
+        if (score < bestScore) {
+          bestScore = score;
+          bestAnchor = forwardCandidates[i];
+        }
+      }
+      
+      return bestAnchor;
+    }
+    
+    // Pass 2 (fallback): if no safe forward anchor exists, look for safe behind-player anchors
+    const behindCandidates: AnchorPoint[] = [];
+    
+    anchors.forEach((anchor: AnchorPoint) => {
+      // Must be behind the player
+      if (anchor.x >= player.position) return;
+      
+      const dx = anchor.x - player.position;
+      const dy = anchor.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      // Must be within grab radius
+      if (dist >= ANCHOR_GRAB_RADIUS) return;
+      
+      // Must be safe
+      if (!isSafeAnchor(anchor, player)) return;
+      
+      behindCandidates.push(anchor);
+    });
+    
+    // If any safe behind-player anchors exist, return the closest one
+    if (behindCandidates.length > 0) {
+      let bestAnchor = behindCandidates[0];
+      let bestDist = Math.sqrt(
+        Math.pow(bestAnchor.x - player.position, 2) + 
+        Math.pow(bestAnchor.y - player.y, 2)
+      );
+      
+      for (let i = 1; i < behindCandidates.length; i++) {
+        const dist = Math.sqrt(
+          Math.pow(behindCandidates[i].x - player.position, 2) + 
+          Math.pow(behindCandidates[i].y - player.y, 2)
+        );
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestAnchor = behindCandidates[i];
+        }
+      }
+      
+      return bestAnchor;
+    }
+    
+    // No safe anchor found
+    return null;
   };
 
   // Initialize game
