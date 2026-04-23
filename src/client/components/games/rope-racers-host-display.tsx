@@ -39,8 +39,10 @@ interface AnchorPoint {
 
 const GRAVITY = 0.6;
 const ROPE_LENGTH = 80;
-const ANCHOR_GRAB_RADIUS = 250; // Increased from 100 to make grabbing reachable
+const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
 const GROUND_LEVEL = 600;
+const ANCHOR_MIN_Y = 300; // Anchors spawn with room for swing arc clearance
+const ANCHOR_MAX_Y = 420; // Anchors spawn with room for swing arc clearance
 const ELIMINATION_Y = 900; // Players eliminated if they fall below this
 const BOUNCE_DAMPING = 0.4;
 const FLOOR_Y = GROUND_LEVEL;
@@ -48,6 +50,7 @@ const PENDULUM_DAMPING = 0.98; // Apply each tick to angular velocity
 const GROUND_RUN_SPEED = 3.5; // Forward speed when grounded and running
 const ANCHOR_SPAWN_AHEAD = 1500; // Spawn anchors this far ahead of camera
 const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
+const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -71,8 +74,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     
     // Generate anchors from rightmostX to maxX if needed
     if (rightmostX < maxX) {
-      let currentX = rightmostX > 0 ? rightmostX : 400;
-      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : 300;
+      let currentX = rightmostX > 0 ? rightmostX : INITIAL_ANCHOR_DISTANCE;
+      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : 360;
       
       while (currentX < maxX) {
         const minGap = 150;
@@ -83,9 +86,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         
         if (currentX >= maxX) break;
         
-        // Vary height with some noise
-        const heightVariation = (Math.random() - 0.5) * 200;
-        const y = Math.max(150, Math.min(450, lastY + heightVariation));
+        // Vary height with some noise but keep anchors lower and closer to ground
+        const heightVariation = (Math.random() - 0.5) * 100;
+        const y = Math.max(ANCHOR_MIN_Y, Math.min(ANCHOR_MAX_Y, lastY + heightVariation));
         
         anchors.push({ x: currentX, y, id: nextId });
         lastY = y;
@@ -97,29 +100,78 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     return anchors.filter(a => a.x >= minX);
   };
 
+  // Find the best anchor for a player to grab (extracted for reuse)
+  const findBestAnchorForPlayer = (player: PlayerState, anchors: AnchorPoint[]): AnchorPoint | null => {
+    let bestAnchor: AnchorPoint | null = null;
+    let bestDistance = Infinity;
+
+    anchors.forEach((anchor: AnchorPoint) => {
+      // Anchor must be ahead (positive x direction)
+      if (anchor.x < player.position) return;
+
+      const dx = anchor.x - player.position;
+      const dy = anchor.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < ANCHOR_GRAB_RADIUS && dist < bestDistance) {
+        bestDistance = dist;
+        bestAnchor = anchor;
+      }
+    });
+
+    return bestAnchor;
+  };
+
   // Initialize game
   onMount(() => {
     // Generate initial anchors
     const anchors = generateAnchorsInRange(0, ANCHOR_SPAWN_AHEAD, []);
     setAnchorPoints(anchors);
     
-    // Initialize player states
+    // Initialize player states - players start hanging from an anchor
     const states = new Map<string, PlayerState>();
-    props.players.forEach((player) => {
-      states.set(player.id, {
-        id: player.id,
-        name: player.name || `Player ${player.id.substring(0, 4)}`,
-        position: 0,
-        velocity: 0,
-        y: GROUND_LEVEL,
-        vyy: 0,
-        state: 'flying',
-        grabbing: false,
-        anchorId: null,
-        angle: 0,
-        angularVelocity: 0,
-        eliminated: false,
-      });
+    props.players.forEach((player, index) => {
+      // Find a starting anchor for this player (use early anchors for multiple players)
+      let startingAnchor: AnchorPoint | null = null;
+      if (anchors.length > 0) {
+        // Use different anchors for different players (index 0 uses first, index 1 uses second, etc.)
+        const anchorIndex = Math.min(index, anchors.length - 1);
+        startingAnchor = anchors[anchorIndex];
+      }
+
+      if (startingAnchor) {
+        // Player starts hanging from an anchor, swinging
+        states.set(player.id, {
+          id: player.id,
+          name: player.name || `Player ${player.id.substring(0, 4)}`,
+          position: startingAnchor.x,
+          velocity: 0,
+          y: startingAnchor.y + ROPE_LENGTH,
+          vyy: 0,
+          state: 'swinging',
+          grabbing: true,
+          anchorId: startingAnchor.id,
+          angle: 0, // Hanging straight down
+          angularVelocity: 0.3, // Small initial swing to get momentum
+          eliminated: false,
+        });
+      } else {
+        // Fallback: if no anchors, start on ground
+        states.set(player.id, {
+          id: player.id,
+          name: player.name || `Player ${player.id.substring(0, 4)}`,
+          position: 0,
+          velocity: 0,
+          y: GROUND_LEVEL,
+          vyy: 0,
+          state: 'flying',
+          grabbing: false,
+          anchorId: null,
+          angle: 0,
+          angularVelocity: 0,
+          eliminated: false,
+        });
+      }
     });
     setPlayerStates(states);
     
@@ -155,22 +207,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               
               if (event.action === 'grab' && player.state === 'flying') {
                 // Find nearest anchor ahead of the player
-                let bestAnchor: AnchorPoint | null = null;
-                let bestDistance = Infinity;
-
-                anchors.forEach((anchor: AnchorPoint) => {
-                  // Anchor must be ahead (positive x direction)
-                  if (anchor.x < player.position) return;
-
-                  const dx = anchor.x - player.position;
-                  const dy = anchor.y - player.y;
-                  const dist = Math.sqrt(dx * dx + dy * dy);
-
-                  if (dist < ANCHOR_GRAB_RADIUS && dist < bestDistance) {
-                    bestDistance = dist;
-                    bestAnchor = anchor;
-                  }
-                });
+                const bestAnchor = findBestAnchorForPlayer(player, anchors);
 
                 if (bestAnchor !== null && bestAnchor !== undefined) {
                   // Transition to swinging
@@ -415,6 +452,22 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           ctx.moveTo(anchorScreenX, anchor.y);
           ctx.lineTo(screenX, player.y);
           ctx.stroke();
+        }
+      }
+
+      // Draw nearest-anchor indicator (only for alive players in flying state)
+      if (!player.eliminated && player.state === 'flying') {
+        const nextAnchor = findBestAnchorForPlayer(player, anchors);
+        if (nextAnchor) {
+          const anchorScreenX = nextAnchor.x - cam;
+          // Draw a circle around the nearest reachable anchor
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.6;
+          ctx.beginPath();
+          ctx.arc(anchorScreenX, nextAnchor.y, 15, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1.0;
         }
       }
 
