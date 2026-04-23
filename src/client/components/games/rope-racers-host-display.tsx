@@ -42,6 +42,7 @@ interface AnchorPoint {
 const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
+const ANCHOR_TIEBREAKER_WEIGHT = 0.05; // Tiebreaker when anchors are equally angled
 const GROUND_LEVEL = 600;
 const ANCHOR_MIN_Y = 150; // Anchors spawn with room for swing arc clearance
 const ANCHOR_MAX_Y = 280; // Anchors spawn with room for swing arc clearance
@@ -109,24 +110,17 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       if (anchor.x < player.position) return;
 
       const dx = anchor.x - player.position;
-      const dy = anchor.y - player.y; // Negative if anchor is above, positive if below
+      const dy = anchor.y - player.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       // Must be within grab radius
       if (dist >= ANCHOR_GRAB_RADIUS) return;
 
-      // Scoring function: heavily weight height advantage (how far above the player the anchor is)
-      // Height advantage is -dy (negative dy means anchor is above, which is good)
-      const heightAdvantage = -dy; // Positive value when anchor is above player
-      
-      // Horizontal distance penalty - we want anchors that aren't too far ahead
-      const horizontalPenalty = dx;
-      
-      // Score prioritizes height advantage with a high weight factor
-      // If anchor is above, height advantage is large and positive, reducing overall score
-      // If anchor is below/same level, height advantage is small/negative, increasing score
-      // The weight factor (3.0) makes height advantage 3x more important than horizontal distance
-      const score = horizontalPenalty - heightAdvantage * 3.0;
+      // Score: blend forward angle and proximity
+      // score = (dist - dx) + dist * ANCHOR_TIEBREAKER_WEIGHT (lower is better)
+      // (dist - dx) heavily penalizes vertical anchors, preferring forward-angled ones
+      // dist * ANCHOR_TIEBREAKER_WEIGHT adds small distance bias as tiebreaker
+      const score = (dist - dx) + dist * ANCHOR_TIEBREAKER_WEIGHT;
 
       if (score < bestScore) {
         bestScore = score;
