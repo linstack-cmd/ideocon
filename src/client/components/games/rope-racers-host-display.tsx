@@ -28,6 +28,7 @@ interface PlayerState {
   anchorId: number | null;
   angle: number; // angle of swing in radians
   angularVelocity: number;
+  ropeLength: number; // per-player rope length (set at grab time)
   eliminated: boolean;
 }
 
@@ -37,17 +38,15 @@ interface AnchorPoint {
   id: number;
 }
 
-const GRAVITY = 0.6;
+const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
 const GROUND_LEVEL = 600;
 const ANCHOR_MIN_Y = 300; // Anchors spawn with room for swing arc clearance
 const ANCHOR_MAX_Y = 420; // Anchors spawn with room for swing arc clearance
-const ELIMINATION_Y = 900; // Players eliminated if they fall below this
-const BOUNCE_DAMPING = 0.4;
+const ELIMINATION_Y = 900; // Players eliminated if they fall below this (safety net)
 const FLOOR_Y = GROUND_LEVEL;
 const PENDULUM_DAMPING = 0.98; // Apply each tick to angular velocity
-const GROUND_RUN_SPEED = 3.5; // Forward speed when grounded and running
 const ANCHOR_SPAWN_AHEAD = 1500; // Spawn anchors this far ahead of camera
 const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
@@ -152,7 +151,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           grabbing: true,
           anchorId: startingAnchor.id,
           angle: 0, // Hanging straight down
-          angularVelocity: 0.3, // Small initial swing to get momentum
+          angularVelocity: 0.15, // Small initial swing to get momentum (reduced for slower physics)
+          ropeLength: ROPE_LENGTH,
           eliminated: false,
         });
       } else {
@@ -169,6 +169,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           anchorId: null,
           angle: 0,
           angularVelocity: 0,
+          ropeLength: ROPE_LENGTH,
           eliminated: false,
         });
       }
@@ -214,6 +215,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   const selectedAnchor: AnchorPoint = bestAnchor;
                   const dx = selectedAnchor.x - player.position;
                   const dy = selectedAnchor.y - player.y;
+                  const actualDistance = Math.sqrt(dx * dx + dy * dy);
                   
                   // Calculate initial angle
                   const initialAngle = Math.atan2(dx, dy);
@@ -227,7 +229,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   player.grabbing = true;
                   player.anchorId = selectedAnchor.id;
                   player.angle = initialAngle;
-                  player.angularVelocity = projectedVel / ROPE_LENGTH;
+                  player.ropeLength = actualDistance; // FIX 1: Set rope length to actual distance to prevent teleport
+                  player.angularVelocity = projectedVel / actualDistance;
                 }
               } else if (event.action === 'release' && player.state === 'swinging') {
                 // Release rope
@@ -281,19 +284,12 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               player.y += player.vyy;
               player.position += player.velocity;
 
-              // Ground collision
+              // FIX 2: Ground collision eliminates the player
               if (player.y >= FLOOR_Y) {
-                player.y = FLOOR_Y;
-                player.vyy = 0;
-                player.velocity *= (1 - BOUNCE_DAMPING);
-                
-                // Auto-run forward when on ground (allows reaching first anchor)
-                if (player.velocity < GROUND_RUN_SPEED) {
-                  player.velocity = GROUND_RUN_SPEED;
-                }
+                player.eliminated = true;
               }
 
-              // Check if fell off the screen - elimination
+              // Check if fell off the screen - elimination (safety net)
               if (player.y >= ELIMINATION_Y) {
                 player.eliminated = true;
               }
@@ -306,7 +302,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
               // Simple pendulum physics with damping
               const g = GRAVITY;
-              const ropeLen = ROPE_LENGTH;
+              const ropeLen = player.ropeLength; // FIX 1: Use per-player rope length instead of constant
 
               // Angular acceleration from gravity
               const angularAccel = -(g / ropeLen) * Math.sin(player.angle);
@@ -328,6 +324,11 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               // Update position from pendulum
               player.y = anchor.y + ropeLen * Math.cos(player.angle);
               player.position = anchor.x + ropeLen * Math.sin(player.angle);
+
+              // Ground check - eliminate if swinging through ground (can happen with long ropes)
+              if (player.y >= FLOOR_Y) {
+                player.eliminated = true;
+              }
 
               // If released, transition to flying
               if (player.grabbing === false && player.anchorId !== null) {
