@@ -77,7 +77,7 @@ export const GAMES: GameCatalog[] = [
   {
     id: 'rope-racers',
     name: 'Rope Racers',
-    description: 'Swing to the finish line!',
+    description: 'Last player swinging wins!',
     minPlayers: 1,
     maxPlayers: 8,
   },

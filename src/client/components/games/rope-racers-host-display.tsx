@@ -25,10 +25,10 @@ interface PlayerState {
   vyy: number; // vertical velocity
   state: 'flying' | 'swinging';
   grabbing: boolean;
-  anchorIndex: number | null;
+  anchorId: number | null;
   angle: number; // angle of swing in radians
   angularVelocity: number;
-  finished: boolean;
+  eliminated: boolean;
 }
 
 interface AnchorPoint {
@@ -39,15 +39,15 @@ interface AnchorPoint {
 
 const GRAVITY = 0.6;
 const ROPE_LENGTH = 80;
-const ANCHOR_GRAB_RADIUS = 100;
-const TRACK_WIDTH = 8000;
-const TRACK_HEIGHT = 800;
+const ANCHOR_GRAB_RADIUS = 250; // Increased from 100 to make grabbing reachable
 const GROUND_LEVEL = 600;
-const FINISH_LINE_X = TRACK_WIDTH - 200;
+const ELIMINATION_Y = 900; // Players eliminated if they fall below this
 const BOUNCE_DAMPING = 0.4;
 const FLOOR_Y = GROUND_LEVEL;
 const PENDULUM_DAMPING = 0.98; // Apply each tick to angular velocity
 const GROUND_RUN_SPEED = 3.5; // Forward speed when grounded and running
+const ANCHOR_SPAWN_AHEAD = 1500; // Spawn anchors this far ahead of camera
+const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -61,39 +61,46 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   let broadcastIntervalId: number | null = null;
   let countdownIntervalId: number | null = null;
 
-  // Generate anchor points along the track
-  const generateAnchors = () => {
-    const anchors: AnchorPoint[] = [];
-    let id = 0;
+  // Generate anchors dynamically - ensure continuous anchor coverage
+  const generateAnchorsInRange = (minX: number, maxX: number, existingAnchors: AnchorPoint[]): AnchorPoint[] => {
+    const anchors = [...existingAnchors];
+    let nextId = Math.max(0, ...anchors.map(a => a.id)) + 1;
     
-    // Stagger anchor heights for interesting swinging
-    let currentX = 400;
-    let lastY = 300;
+    // Find the rightmost anchor
+    const rightmostX = anchors.length > 0 ? Math.max(...anchors.map(a => a.x)) : -500;
     
-    while (currentX < TRACK_WIDTH) {
-      const minGap = 150;
-      const maxGap = 350;
-      const gapDistance = minGap + Math.random() * (maxGap - minGap);
+    // Generate anchors from rightmostX to maxX if needed
+    if (rightmostX < maxX) {
+      let currentX = rightmostX > 0 ? rightmostX : 400;
+      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : 300;
       
-      currentX += gapDistance;
-      
-      if (currentX >= TRACK_WIDTH) break;
-      
-      // Vary height with some noise
-      const heightVariation = (Math.random() - 0.5) * 200;
-      const y = Math.max(150, Math.min(450, lastY + heightVariation));
-      
-      anchors.push({ x: currentX, y, id });
-      lastY = y;
-      id++;
+      while (currentX < maxX) {
+        const minGap = 150;
+        const maxGap = 350;
+        const gapDistance = minGap + Math.random() * (maxGap - minGap);
+        
+        currentX += gapDistance;
+        
+        if (currentX >= maxX) break;
+        
+        // Vary height with some noise
+        const heightVariation = (Math.random() - 0.5) * 200;
+        const y = Math.max(150, Math.min(450, lastY + heightVariation));
+        
+        anchors.push({ x: currentX, y, id: nextId });
+        lastY = y;
+        nextId++;
+      }
     }
     
-    return anchors;
+    // Remove anchors that are too far behind
+    return anchors.filter(a => a.x >= minX);
   };
 
   // Initialize game
   onMount(() => {
-    const anchors = generateAnchors();
+    // Generate initial anchors
+    const anchors = generateAnchorsInRange(0, ANCHOR_SPAWN_AHEAD, []);
     setAnchorPoints(anchors);
     
     // Initialize player states
@@ -108,10 +115,10 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         vyy: 0,
         state: 'flying',
         grabbing: false,
-        anchorIndex: null,
+        anchorId: null,
         angle: 0,
         angularVelocity: 0,
-        finished: false,
+        eliminated: false,
       });
     });
     setPlayerStates(states);
@@ -168,7 +175,6 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 if (bestAnchor !== null && bestAnchor !== undefined) {
                   // Transition to swinging
                   const selectedAnchor: AnchorPoint = bestAnchor;
-                  const anchorIdx = anchors.findIndex((a: AnchorPoint) => a.id === selectedAnchor.id);
                   const dx = selectedAnchor.x - player.position;
                   const dy = selectedAnchor.y - player.y;
                   
@@ -182,7 +188,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   
                   player.state = 'swinging';
                   player.grabbing = true;
-                  player.anchorIndex = anchorIdx;
+                  player.anchorId = selectedAnchor.id;
                   player.angle = initialAngle;
                   player.angularVelocity = projectedVel / ROPE_LENGTH;
                 }
@@ -204,12 +210,33 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         // Update physics
         setPlayerStates((prevStates) => {
           const newStates = new Map(prevStates);
-          const finished = winner() !== null;
+          const anchors = anchorPoints();
+
+          // Count alive players
+          const alivePlayers = Array.from(newStates.values()).filter(p => !p.eliminated);
+          
+          // Check if any elimination has occurred by comparing alive count to total players
+          const hasAnyElimination = alivePlayers.length < props.players.length;
+          
+          // Win condition: In single-player, game ends when player falls. In multiplayer, last alive player wins.
+          if (winner() === null && gameStarted()) {
+            if (props.players.length === 1) {
+              // Single-player: game ends when the sole player is eliminated
+              if (alivePlayers.length === 0) {
+                setWinner('Game Over!');
+              }
+            } else {
+              // Multiplayer: game ends when only 1 player remains alive AND at least one elimination has occurred
+              if (alivePlayers.length === 1 && hasAnyElimination) {
+                setWinner(`${alivePlayers[0].name} Wins!`);
+              } else if (alivePlayers.length === 0) {
+                setWinner('No Players Left!');
+              }
+            }
+          }
 
           newStates.forEach((player) => {
-            if (player.finished || finished) return;
-
-            const anchors = anchorPoints();
+            if (player.eliminated) return;
 
             if (player.state === 'flying') {
               // Apply gravity
@@ -229,14 +256,12 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 }
               }
 
-              // Check if falling too much
-              if (player.y > TRACK_HEIGHT) {
-                player.y = FLOOR_Y;
-                player.velocity *= 0.5;
-                player.vyy = 0;
+              // Check if fell off the screen - elimination
+              if (player.y >= ELIMINATION_Y) {
+                player.eliminated = true;
               }
             } else if (player.state === 'swinging') {
-              const anchor = anchors[player.anchorIndex!];
+              const anchor = anchors.find((a: AnchorPoint) => a.id === player.anchorId);
               if (!anchor) {
                 player.state = 'flying';
                 return;
@@ -268,7 +293,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               player.position = anchor.x + ropeLen * Math.sin(player.angle);
 
               // If released, transition to flying
-              if (player.grabbing === false && player.anchorIndex !== null) {
+              if (player.grabbing === false && player.anchorId !== null) {
                 player.state = 'flying';
                 // Calculate tangent velocity from angular velocity
                 const tangentVel = player.angularVelocity * ropeLen;
@@ -276,17 +301,20 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 player.vyy = -Math.sin(player.angle) * tangentVel;
               }
             }
-
-            // Check for finish line
-            if (player.position >= FINISH_LINE_X && !player.finished) {
-              player.finished = true;
-              if (!winner()) {
-                setWinner(`${player.name} Wins!`);
-              }
-            }
           });
 
           return newStates;
+        });
+
+        // Update anchors dynamically based on camera position
+        setCameraX((cam) => {
+          const newAnchors = generateAnchorsInRange(
+            cam - ANCHOR_CLEANUP_BEHIND,
+            cam + ANCHOR_SPAWN_AHEAD,
+            anchorPoints()
+          );
+          setAnchorPoints(newAnchors);
+          return cam;
         });
       }
 
@@ -311,8 +339,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         position: p.position,
         y: p.y,
         state: p.state,
-        anchorIndex: p.anchorIndex,
-        finished: p.finished,
+        anchorId: p.anchorId,
+        eliminated: p.eliminated,
         grabbing: p.grabbing,
       }));
 
@@ -348,10 +376,10 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     ctx.fillStyle = '#34A853';
     ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
 
-    // Calculate camera position (follow the leader)
+    // Calculate camera position (follow the leader among alive players)
     let maxX: number = 0;
     states.forEach((player) => {
-      if (player.position > maxX) maxX = player.position;
+      if (!player.eliminated && player.position > maxX) maxX = player.position;
     });
 
     const targetCameraX = Math.max(0, maxX - canvas.width * 0.3);
@@ -359,21 +387,6 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     setCameraX(smoothCamera);
 
     const cam = smoothCamera;
-
-    // Draw finish line
-    const finishScreenX = FINISH_LINE_X - cam;
-    ctx.strokeStyle = '#FF0000';
-    ctx.lineWidth = 4;
-    ctx.setLineDash([10, 10]);
-    ctx.beginPath();
-    ctx.moveTo(finishScreenX, 0);
-    ctx.lineTo(finishScreenX, canvas.height);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#FF0000';
-    ctx.font = 'bold 16px Arial';
-    ctx.fillText('FINISH', finishScreenX - 35, 30);
 
     // Draw anchor points
     ctx.fillStyle = '#8B4513';
@@ -391,9 +404,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     states.forEach((player) => {
       const screenX = player.position - cam;
 
-      // Draw rope if swinging
-      if (player.state === 'swinging' && player.anchorIndex !== null) {
-        const anchor = anchors[player.anchorIndex];
+      // Draw rope if swinging (only for alive players)
+      if (!player.eliminated && player.state === 'swinging' && player.anchorId !== null) {
+        const anchor = anchors.find((a: AnchorPoint) => a.id === player.anchorId);
         if (anchor) {
           const anchorScreenX = anchor.x - cam;
           ctx.strokeStyle = '#DAA520';
@@ -407,22 +420,24 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
       // Draw player character
       const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
-      ctx.fillStyle = colors[playerIdx % colors.length];
+      ctx.fillStyle = player.eliminated ? '#666666' : colors[playerIdx % colors.length];
       playerIdx++;
       ctx.beginPath();
       ctx.arc(screenX, player.y, 12, 0, Math.PI * 2);
       ctx.fill();
 
       // Draw player name
-      ctx.fillStyle = '#000000';
-      ctx.font = 'bold 12px Arial';
+      ctx.fillStyle = player.eliminated ? '#999999' : '#000000';
+      ctx.font = `${player.eliminated ? 'italic' : 'bold'} 12px Arial`;
       ctx.textAlign = 'center';
       ctx.fillText((player.name || 'Unknown').substring(0, 10), screenX, player.y - 20);
 
-      // Draw position indicator
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '10px Arial';
-      ctx.fillText(`${Math.round(player.position as number)}m`, screenX, player.y + 25);
+      // Draw position indicator (only for alive players)
+      if (!player.eliminated) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '10px Arial';
+        ctx.fillText(`${Math.round(player.position as number)}m`, screenX, player.y + 25);
+      }
     });
 
     // Draw UI
