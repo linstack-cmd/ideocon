@@ -102,18 +102,34 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   // Find the best anchor for a player to grab (extracted for reuse)
   const findBestAnchorForPlayer = (player: PlayerState, anchors: AnchorPoint[]): AnchorPoint | null => {
     let bestAnchor: AnchorPoint | null = null;
-    let bestDistance = Infinity;
+    let bestScore = Infinity;
 
     anchors.forEach((anchor: AnchorPoint) => {
       // Anchor must be ahead (positive x direction)
       if (anchor.x < player.position) return;
 
       const dx = anchor.x - player.position;
-      const dy = anchor.y - player.y;
+      const dy = anchor.y - player.y; // Negative if anchor is above, positive if below
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist < ANCHOR_GRAB_RADIUS && dist < bestDistance) {
-        bestDistance = dist;
+      // Must be within grab radius
+      if (dist >= ANCHOR_GRAB_RADIUS) return;
+
+      // Scoring function: heavily weight height advantage (how far above the player the anchor is)
+      // Height advantage is -dy (negative dy means anchor is above, which is good)
+      const heightAdvantage = -dy; // Positive value when anchor is above player
+      
+      // Horizontal distance penalty - we want anchors that aren't too far ahead
+      const horizontalPenalty = dx;
+      
+      // Score prioritizes height advantage with a high weight factor
+      // If anchor is above, height advantage is large and positive, reducing overall score
+      // If anchor is below/same level, height advantage is small/negative, increasing score
+      // The weight factor (3.0) makes height advantage 3x more important than horizontal distance
+      const score = horizontalPenalty - heightAdvantage * 3.0;
+
+      if (score < bestScore) {
+        bestScore = score;
         bestAnchor = anchor;
       }
     });
@@ -225,29 +241,6 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           const newStates = new Map(prevStates);
           const anchors = anchorPoints();
 
-          // Count alive players
-          const alivePlayers = Array.from(newStates.values()).filter(p => !p.eliminated);
-          
-          // Check if any elimination has occurred by comparing alive count to total players
-          const hasAnyElimination = alivePlayers.length < props.players.length;
-          
-          // Win condition: In single-player, game ends when player falls. In multiplayer, last alive player wins.
-          if (winner() === null && gameStarted()) {
-            if (props.players.length === 1) {
-              // Single-player: game ends when the sole player is eliminated
-              if (alivePlayers.length === 0) {
-                setWinner('Game Over!');
-              }
-            } else {
-              // Multiplayer: game ends when only 1 player remains alive AND at least one elimination has occurred
-              if (alivePlayers.length === 1 && hasAnyElimination) {
-                setWinner(`${alivePlayers[0].name} Wins!`);
-              } else if (alivePlayers.length === 0) {
-                setWinner('No Players Left!');
-              }
-            }
-          }
-
           newStates.forEach((player) => {
             if (player.eliminated) return;
 
@@ -313,6 +306,27 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
           return newStates;
         });
+
+        // Check winner condition after physics update
+        if (winner() === null && gameStarted()) {
+          const states = playerStates();
+          const alivePlayers = Array.from(states.values()).filter(p => !p.eliminated);
+          const hasAnyElimination = alivePlayers.length < props.players.length;
+
+          if (props.players.length === 1) {
+            // Single-player: game ends when the sole player is eliminated
+            if (alivePlayers.length === 0) {
+              setWinner('Game Over!');
+            }
+          } else {
+            // Multiplayer: game ends when only 1 player remains alive AND at least one elimination has occurred
+            if (alivePlayers.length === 1 && hasAnyElimination) {
+              setWinner(`${alivePlayers[0].name} Wins!`);
+            } else if (alivePlayers.length === 0) {
+              setWinner('No Players Left!');
+            }
+          }
+        }
 
         // Update anchors dynamically based on camera position
         setCameraX((cam) => {
