@@ -36,6 +36,17 @@ export const HostLobby = (props: HostLobbyProps) => {
     }
   };
 
+  const getSelectedGame = () => {
+    const gameId = selectedGameId();
+    return gameId ? GAMES.find((g) => g.id === gameId) : null;
+  };
+
+  const isStartGameDisabled = () => {
+    const selectedGame = getSelectedGame();
+    if (!selectedGame) return true;
+    return props.players.length < selectedGame.minPlayers;
+  };
+
   return (
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 2rem; padding: 2rem;">
       <h1>Game Lobby</h1>
@@ -95,22 +106,28 @@ export const HostLobby = (props: HostLobbyProps) => {
           </For>
         </ul>
       </div>
-      <button
-        onclick={handleStartGame}
-        disabled={props.players.length < 2 || !selectedGameId()}
-        style={{
-          padding: '0.75rem 1.5rem',
-          'font-size': '1.25rem',
-          background: '#28a745',
-          color: 'white',
-          border: 'none',
-          'border-radius': '4px',
-          cursor: 'pointer',
-          opacity: props.players.length < 2 || !selectedGameId() ? 0.5 : 1,
-        }}
-      >
-        Start Game
-      </button>
+      <div style="text-align: center;">
+        <button
+          onclick={handleStartGame}
+          disabled={isStartGameDisabled()}
+          style={{
+            padding: '0.75rem 1.5rem',
+            'font-size': '1.25rem',
+            background: '#28a745',
+            color: 'white',
+            border: 'none',
+            'border-radius': '4px',
+            cursor: isStartGameDisabled() ? 'not-allowed' : 'pointer',
+            opacity: isStartGameDisabled() ? 0.5 : 1,
+          }}
+        >
+          Start Game
+        </button>
+        <div style={{ 'font-size': '0.85rem', color: '#666', 'margin-top': '0.5rem', height: '1rem' }}>
+          {!selectedGameId() ? 'Select a game and wait for players to join' : 
+           props.players.length < (getSelectedGame()?.minPlayers || 1) ? `Need ${(getSelectedGame()?.minPlayers || 1) - props.players.length} more player(s)` : ''}
+        </div>
+      </div>
     </div>
   );
 };

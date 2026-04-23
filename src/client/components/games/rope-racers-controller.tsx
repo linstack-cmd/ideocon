@@ -11,11 +11,10 @@ interface RopeRacersControllerProps {
 }
 
 export const RopeRacersController = (props: RopeRacersControllerProps) => {
-  const [isGrabbed, setIsGrabbed] = createSignal(false);
-
   const handleTap = () => {
-    const action = isGrabbed() ? 'release' : 'grab';
-    setIsGrabbed(!isGrabbed());
+    // Determine if player is currently grabbing from game state
+    const isCurrentlyGrabbing = getPlayerInfo().isGrabbing || false;
+    const action = isCurrentlyGrabbing ? 'release' : 'grab';
     
     props.onInput({
       action,
@@ -27,10 +26,10 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
   // Extract player position/rank from game state if available
   // This is a getter function so it re-evaluates whenever gameState changes
   const getPlayerInfo = () => {
-    if (!props.gameState?.players) return { position: 0, rank: 0, totalPlayers: 0 };
+    if (!props.gameState?.players) return { position: 0, rank: 0, totalPlayers: 0, isGrabbing: false };
     
     const playerData = props.gameState.players.find((p: any) => p.id === props.playerId);
-    if (!playerData) return { position: 0, rank: 0, totalPlayers: props.gameState.players.length };
+    if (!playerData) return { position: 0, rank: 0, totalPlayers: props.gameState.players.length, isGrabbing: false };
     
     // Get rank by sorting all players by position
     const sortedByPosition = [...props.gameState.players]
@@ -42,6 +41,7 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
       position: Math.round(playerData.position || 0),
       rank,
       totalPlayers: props.gameState.players.length,
+      isGrabbing: playerData.grabbing || false,
     };
   };
 
@@ -55,7 +55,7 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
         height: '100%',
         gap: '2rem',
         padding: '2rem',
-        'background': isGrabbed() 
+        'background': getPlayerInfo().isGrabbing
           ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
           : 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
         color: 'white',
@@ -75,7 +75,7 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
 
       <div style="text-align: center;">
         <p style="font-size: 1.1rem; margin-bottom: 1.5rem;">
-          {isGrabbed() ? '🪢 HOLDING ROPE' : '✋ TAP TO GRAB'}
+          {getPlayerInfo().isGrabbing ? '🪢 HOLDING ROPE' : '✋ TAP TO GRAB'}
         </p>
         <button
           onclick={handleTap}
@@ -83,7 +83,7 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
             padding: '2.5rem 5rem',
             'font-size': '1.8rem',
             background: 'rgba(255,255,255,0.95)',
-            color: isGrabbed() ? '#667eea' : '#f5576c',
+            color: getPlayerInfo().isGrabbing ? '#667eea' : '#f5576c',
             border: 'none',
             'border-radius': '12px',
             cursor: 'pointer',
@@ -102,7 +102,7 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
             target.style.transform = 'scale(1)';
           }}
         >
-          {isGrabbed() ? 'RELEASE' : 'GRAB'}
+          {getPlayerInfo().isGrabbing ? 'RELEASE' : 'GRAB'}
         </button>
       </div>
 

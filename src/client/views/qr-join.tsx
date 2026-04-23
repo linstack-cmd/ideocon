@@ -45,7 +45,7 @@ export const QRJoin = (props: QRJoinProps) => {
             onInput={(e) => setName(e.currentTarget.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
             maxlength="20"
-            style="padding: 0.5rem; font-size: 1rem; width: 200px; text-align: center; display: block; margin-bottom: 0.5rem;"
+            style="padding: 0.75rem; font-size: 1rem; width: 200px; text-align: center; display: block; margin-bottom: 0.5rem; border: 1px solid #ddd; border-radius: 4px;"
             autofocus
           />
           <button

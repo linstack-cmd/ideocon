@@ -132,160 +132,163 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
     // Game loop - runs physics and rendering together
     const tick = () => {
-      // Process any queued events from the game events signal
-      const pendingEvents = props.gameEvents;
-      if (pendingEvents.length > 0) {
-        setPlayerStates((prevStates) => {
-          const newStates = new Map(prevStates);
-          const anchors = anchorPoints();
-          
-          // Process each event
-          pendingEvents.forEach((event) => {
-            const player = newStates.get(event.playerId);
-            if (!player) return;
+      // Only process events and physics if game has started
+      if (gameStarted()) {
+        // Process any queued events from the game events signal
+        const pendingEvents = props.gameEvents;
+        if (pendingEvents.length > 0) {
+          setPlayerStates((prevStates) => {
+            const newStates = new Map(prevStates);
+            const anchors = anchorPoints();
             
-            if (event.action === 'grab' && player.state === 'flying') {
-              // Find nearest anchor ahead of the player
-              let bestAnchor: AnchorPoint | null = null;
-              let bestDistance = Infinity;
+            // Process each event
+            pendingEvents.forEach((event) => {
+              const player = newStates.get(event.playerId);
+              if (!player) return;
+              
+              if (event.action === 'grab' && player.state === 'flying') {
+                // Find nearest anchor ahead of the player
+                let bestAnchor: AnchorPoint | null = null;
+                let bestDistance = Infinity;
 
-              anchors.forEach((anchor: AnchorPoint) => {
-                // Anchor must be ahead (positive x direction)
-                if (anchor.x < player.position) return;
+                anchors.forEach((anchor: AnchorPoint) => {
+                  // Anchor must be ahead (positive x direction)
+                  if (anchor.x < player.position) return;
 
-                const dx = anchor.x - player.position;
-                const dy = anchor.y - player.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                  const dx = anchor.x - player.position;
+                  const dy = anchor.y - player.y;
+                  const dist = Math.sqrt(dx * dx + dy * dy);
 
-                if (dist < ANCHOR_GRAB_RADIUS && dist < bestDistance) {
-                  bestDistance = dist;
-                  bestAnchor = anchor;
+                  if (dist < ANCHOR_GRAB_RADIUS && dist < bestDistance) {
+                    bestDistance = dist;
+                    bestAnchor = anchor;
+                  }
+                });
+
+                if (bestAnchor !== null && bestAnchor !== undefined) {
+                  // Transition to swinging
+                  const selectedAnchor: AnchorPoint = bestAnchor;
+                  const anchorIdx = anchors.findIndex((a: AnchorPoint) => a.id === selectedAnchor.id);
+                  const dx = selectedAnchor.x - player.position;
+                  const dy = selectedAnchor.y - player.y;
+                  
+                  // Calculate initial angle
+                  const initialAngle = Math.atan2(dx, dy);
+                  
+                  // Project current velocity onto tangent of swing
+                  const tangentX = -Math.sin(initialAngle);
+                  const tangentY = Math.cos(initialAngle);
+                  const projectedVel = player.velocity * tangentX + player.vyy * tangentY;
+                  
+                  player.state = 'swinging';
+                  player.grabbing = true;
+                  player.anchorIndex = anchorIdx;
+                  player.angle = initialAngle;
+                  player.angularVelocity = projectedVel / ROPE_LENGTH;
                 }
-              });
-
-              if (bestAnchor !== null && bestAnchor !== undefined) {
-                // Transition to swinging
-                const selectedAnchor: AnchorPoint = bestAnchor;
-                const anchorIdx = anchors.findIndex((a: AnchorPoint) => a.id === selectedAnchor.id);
-                const dx = selectedAnchor.x - player.position;
-                const dy = selectedAnchor.y - player.y;
-                
-                // Calculate initial angle
-                const initialAngle = Math.atan2(dx, dy);
-                
-                // Project current velocity onto tangent of swing
-                const tangentX = -Math.sin(initialAngle);
-                const tangentY = Math.cos(initialAngle);
-                const projectedVel = player.velocity * tangentX + player.vyy * tangentY;
-                
-                player.state = 'swinging';
-                player.grabbing = true;
-                player.anchorIndex = anchorIdx;
-                player.angle = initialAngle;
-                player.angularVelocity = projectedVel / ROPE_LENGTH;
+              } else if (event.action === 'release' && player.state === 'swinging') {
+                // Release rope
+                player.grabbing = false;
               }
-            } else if (event.action === 'release' && player.state === 'swinging') {
-              // Release rope
-              player.grabbing = false;
-            }
+            });
+            
+            return newStates;
           });
           
+          // Clear the processed events
+          if (props.onClearEvents) {
+            props.onClearEvents();
+          }
+        }
+
+        // Update physics
+        setPlayerStates((prevStates) => {
+          const newStates = new Map(prevStates);
+          const finished = winner() !== null;
+
+          newStates.forEach((player) => {
+            if (player.finished || finished) return;
+
+            const anchors = anchorPoints();
+
+            if (player.state === 'flying') {
+              // Apply gravity
+              player.vyy += GRAVITY;
+              player.y += player.vyy;
+              player.position += player.velocity;
+
+              // Ground collision
+              if (player.y >= FLOOR_Y) {
+                player.y = FLOOR_Y;
+                player.vyy = 0;
+                player.velocity *= (1 - BOUNCE_DAMPING);
+                
+                // Auto-run forward when on ground (allows reaching first anchor)
+                if (player.velocity < GROUND_RUN_SPEED) {
+                  player.velocity = GROUND_RUN_SPEED;
+                }
+              }
+
+              // Check if falling too much
+              if (player.y > TRACK_HEIGHT) {
+                player.y = FLOOR_Y;
+                player.velocity *= 0.5;
+                player.vyy = 0;
+              }
+            } else if (player.state === 'swinging') {
+              const anchor = anchors[player.anchorIndex!];
+              if (!anchor) {
+                player.state = 'flying';
+                return;
+              }
+
+              // Simple pendulum physics with damping
+              const g = GRAVITY;
+              const ropeLen = ROPE_LENGTH;
+
+              // Angular acceleration from gravity
+              const angularAccel = -(g / ropeLen) * Math.sin(player.angle);
+              player.angularVelocity += angularAccel;
+              
+              // Apply pendulum damping to prevent energy growth
+              player.angularVelocity *= PENDULUM_DAMPING;
+              
+              player.angle += player.angularVelocity;
+
+              // Clamp angle to prevent wrapping
+              if (Math.abs(player.angle) > Math.PI * 0.9) {
+                player.angularVelocity *= 0.9;
+                if (Math.abs(player.angle) > Math.PI) {
+                  player.angle = Math.sign(player.angle) * Math.PI;
+                }
+              }
+
+              // Update position from pendulum
+              player.y = anchor.y + ropeLen * Math.cos(player.angle);
+              player.position = anchor.x + ropeLen * Math.sin(player.angle);
+
+              // If released, transition to flying
+              if (player.grabbing === false && player.anchorIndex !== null) {
+                player.state = 'flying';
+                // Calculate tangent velocity from angular velocity
+                const tangentVel = player.angularVelocity * ropeLen;
+                player.velocity = Math.cos(player.angle) * tangentVel;
+                player.vyy = -Math.sin(player.angle) * tangentVel;
+              }
+            }
+
+            // Check for finish line
+            if (player.position >= FINISH_LINE_X && !player.finished) {
+              player.finished = true;
+              if (!winner()) {
+                setWinner(`${player.name} Wins!`);
+              }
+            }
+          });
+
           return newStates;
         });
-        
-        // Clear the processed events
-        if (props.onClearEvents) {
-          props.onClearEvents();
-        }
       }
-
-      // Update physics
-      setPlayerStates((prevStates) => {
-        const newStates = new Map(prevStates);
-        const finished = winner() !== null;
-
-        newStates.forEach((player) => {
-          if (player.finished || finished) return;
-
-          const anchors = anchorPoints();
-
-          if (player.state === 'flying') {
-            // Apply gravity
-            player.vyy += GRAVITY;
-            player.y += player.vyy;
-            player.position += player.velocity;
-
-            // Ground collision
-            if (player.y >= FLOOR_Y) {
-              player.y = FLOOR_Y;
-              player.vyy = 0;
-              player.velocity *= (1 - BOUNCE_DAMPING);
-              
-              // Auto-run forward when on ground (allows reaching first anchor)
-              if (player.velocity < GROUND_RUN_SPEED) {
-                player.velocity = GROUND_RUN_SPEED;
-              }
-            }
-
-            // Check if falling too much
-            if (player.y > TRACK_HEIGHT) {
-              player.y = FLOOR_Y;
-              player.velocity *= 0.5;
-              player.vyy = 0;
-            }
-          } else if (player.state === 'swinging') {
-            const anchor = anchors[player.anchorIndex!];
-            if (!anchor) {
-              player.state = 'flying';
-              return;
-            }
-
-            // Simple pendulum physics with damping
-            const g = GRAVITY;
-            const ropeLen = ROPE_LENGTH;
-
-            // Angular acceleration from gravity
-            const angularAccel = -(g / ropeLen) * Math.sin(player.angle);
-            player.angularVelocity += angularAccel;
-            
-            // Apply pendulum damping to prevent energy growth
-            player.angularVelocity *= PENDULUM_DAMPING;
-            
-            player.angle += player.angularVelocity;
-
-            // Clamp angle to prevent wrapping
-            if (Math.abs(player.angle) > Math.PI * 0.9) {
-              player.angularVelocity *= 0.9;
-              if (Math.abs(player.angle) > Math.PI) {
-                player.angle = Math.sign(player.angle) * Math.PI;
-              }
-            }
-
-            // Update position from pendulum
-            player.y = anchor.y + ropeLen * Math.cos(player.angle);
-            player.position = anchor.x + ropeLen * Math.sin(player.angle);
-
-            // If released, transition to flying
-            if (player.grabbing === false && player.anchorIndex !== null) {
-              player.state = 'flying';
-              // Calculate tangent velocity from angular velocity
-              const tangentVel = player.angularVelocity * ropeLen;
-              player.velocity = Math.cos(player.angle) * tangentVel;
-              player.vyy = -Math.sin(player.angle) * tangentVel;
-            }
-          }
-
-          // Check for finish line
-          if (player.position >= FINISH_LINE_X && !player.finished) {
-            player.finished = true;
-            if (!winner()) {
-              setWinner(`${player.name} Wins!`);
-            }
-          }
-        });
-
-        return newStates;
-      });
 
       // Render to canvas
       if (canvasRef) {
@@ -310,6 +313,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         state: p.state,
         anchorIndex: p.anchorIndex,
         finished: p.finished,
+        grabbing: p.grabbing,
       }));
 
       if (props.onBroadcastState) {
