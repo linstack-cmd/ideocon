@@ -2,10 +2,13 @@
 
 import { Match, Switch } from 'solid-js';
 import { TugOfWarHostDisplay } from './tug-of-war-host-display.js';
+import { RopeRacersHostDisplay } from './rope-racers-host-display.js';
 
 interface HostDisplayDispatcherProps {
   gameId: string | null;
   gameState: any;
+  gameEvents: any[];
+  onClearEvents?: () => void;
   players: any[];
   onBroadcastState?: (state: any) => void;
 }
@@ -17,6 +20,17 @@ export const HostDisplayDispatcher = (props: HostDisplayDispatcherProps) => {
       <Match when={props.gameId === 'tug-of-war'}>
         <TugOfWarHostDisplay 
           gameState={props.gameState}
+          players={props.players}
+          onBroadcastState={props.onBroadcastState}
+        />
+      </Match>
+
+      {/* Rope Racers */}
+      <Match when={props.gameId === 'rope-racers'}>
+        <RopeRacersHostDisplay 
+          gameState={props.gameState}
+          gameEvents={props.gameEvents}
+          onClearEvents={props.onClearEvents}
           players={props.players}
           onBroadcastState={props.onBroadcastState}
         />

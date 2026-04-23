@@ -20,6 +20,7 @@ export const App = () => {
   const [playerType, setPlayerType] = createSignal<'host' | 'controller'>('controller');
   const [players, setPlayers] = createSignal<any[]>([]);
   const [gameState, setGameState] = createSignal<any>(null);
+  const [gameEvents, setGameEvents] = createSignal<any[]>([]); // Queue of game events
   const [selectedGameId, setSelectedGameId] = createSignal<string | null>(null);
   const [gameInProgress, setGameInProgress] = createSignal(false);
   const [latency, setLatency] = createSignal(0);
@@ -89,10 +90,8 @@ export const App = () => {
           break;
 
         case 'game_event':
-          setGameState((prev: any) => ({
-            ...prev,
-            ...msg.event,
-          }));
+          // Accumulate game events in a queue to avoid losing concurrent inputs
+          setGameEvents((prev) => [...prev, msg.event]);
           break;
 
         case 'game_state':
@@ -199,7 +198,9 @@ export const App = () => {
         <Match when={view() === 'host-game'}>
           <HostDisplayDispatcher 
             gameId={selectedGameId()}
-            gameState={gameState()} 
+            gameState={gameState()}
+            gameEvents={gameEvents()}
+            onClearEvents={() => setGameEvents([])}
             players={players()}
             onBroadcastState={handleBroadcastGameState}
           />
@@ -211,6 +212,9 @@ export const App = () => {
             onInput={handleGameInput}
             latency={latency()}
             team={playerTeam()}
+            playerId={playerId()}
+            gameState={gameState()}
+            gameEvents={gameEvents()}
           />
         </Match>
       </Switch>

@@ -3,6 +3,7 @@
 import { Match, Switch } from 'solid-js';
 import { WaitingState } from './waiting-state.js';
 import { TugOfWarController } from './tug-of-war-controller.js';
+import { RopeRacersController } from './rope-racers-controller.js';
 
 interface ControllerDispatcherProps {
   gameId: string | null;
@@ -10,6 +11,9 @@ interface ControllerDispatcherProps {
   onInput: (event: any) => void;
   latency?: number;
   team?: 'red' | 'blue' | null;
+  playerId?: string;
+  gameState?: any;
+  gameEvents?: any[];
 }
 
 export const ControllerDispatcher = (props: ControllerDispatcherProps) => {
@@ -26,6 +30,17 @@ export const ControllerDispatcher = (props: ControllerDispatcherProps) => {
           onInput={props.onInput} 
           latency={props.latency}
           team={props.team}
+        />
+      </Match>
+
+      {/* Rope Racers */}
+      <Match when={props.gameId === 'rope-racers'}>
+        <RopeRacersController 
+          onInput={props.onInput} 
+          latency={props.latency}
+          gameState={props.gameState}
+          gameEvents={props.gameEvents}
+          playerId={props.playerId || ''}
         />
       </Match>
 
