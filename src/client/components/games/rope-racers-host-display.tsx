@@ -351,6 +351,36 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     return { collides: false, normal: { x: 0, y: 0 }, distance };
   };
 
+  // Continuous collision detection for flying state - dynamic substeps sized to PLAYER_RADIUS
+  const checkSweptCollision = (startX: number, startY: number, endX: number, endY: number, obstacle: Obstacle): { collision: boolean; t: number; normal: { x: number; y: number }; distance: number } => {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const displacement = Math.sqrt(dx * dx + dy * dy);
+    
+    if (displacement < 0.001) {
+      // No movement, use simple collision check
+      const collision = checkObstacleCollision({ position: startX, y: startY } as PlayerState, obstacle);
+      return { collision: collision.collides, t: 0, normal: collision.normal, distance: collision.distance };
+    }
+    
+    // Calculate number of substeps based on displacement and PLAYER_RADIUS
+    const numSteps = Math.ceil(displacement / PLAYER_RADIUS);
+    
+    // Check at each substep from t=0 to t=1
+    for (let i = 0; i <= numSteps; i++) {
+      const t = i / numSteps;
+      const checkX = startX + dx * t;
+      const checkY = startY + dy * t;
+      
+      const collision = checkObstacleCollision({ position: checkX, y: checkY } as PlayerState, obstacle);
+      if (collision.collides) {
+        return { collision: true, t, normal: collision.normal, distance: collision.distance };
+      }
+    }
+    
+    return { collision: false, t: 1, normal: { x: 0, y: 0 }, distance: PLAYER_RADIUS };
+  };
+
   // Apply bounce collision physics - reflect velocity perpendicular to surface
   const applyBounce = (player: PlayerState, normal: { x: number; y: number }, distance: number) => {
     // Reflect velocity across the surface normal
@@ -652,18 +682,43 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
             if (player.eliminated) return;
 
             if (player.state === 'flying') {
+              // Store old position for CCD
+              const oldX = player.position;
+              const oldY = player.y;
+              
               // Apply gravity
               player.vyy += GRAVITY;
-              player.y += player.vyy;
-              player.position += player.velocity;
+              const newY = oldY + player.vyy;
+              const newX = oldX + player.velocity;
 
-              // Check obstacle collisions and bounce
+              // Check obstacle collisions with CCD and bounce
+              let collided = false;
+              let earliestT = 1;
+              let collisionNormal = { x: 0, y: 0 };
+              let collisionDistance = PLAYER_RADIUS;
+              
               obstacleList.forEach((obstacle) => {
-                const collision = checkObstacleCollision(player, obstacle);
-                if (collision.collides) {
-                  applyBounce(player, collision.normal, collision.distance);
+                const swept = checkSweptCollision(oldX, oldY, newX, newY, obstacle);
+                if (swept.collision && swept.t < earliestT) {
+                  earliestT = swept.t;
+                  collisionNormal = swept.normal;
+                  collisionDistance = swept.distance;
+                  collided = true;
                 }
               });
+              
+              if (collided) {
+                // Move to collision point
+                player.position = oldX + player.velocity * earliestT;
+                player.y = oldY + player.vyy * earliestT;
+                
+                // Apply bounce with actual collision distance for proper penetration
+                applyBounce(player, collisionNormal, collisionDistance);
+              } else {
+                // No collision, use full movement
+                player.y = newY;
+                player.position = newX;
+              }
 
               // Ground collision eliminates the player
               if (player.y >= FLOOR_Y) {
@@ -756,18 +811,28 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                     const dy = correctedY - anchor.y;
                     player.angle = Math.atan2(dx, dy);
                     
-                    // Note: ropeLength stays unchanged - pendulum equation will snap position back to arc
+                    // Additional pushout: ensure position stays at least PLAYER_RADIUS from obstacle surface
+                    const collision2 = checkObstacleCollision(player, obstacle);
+                    if (collision2.collides) {
+                      const extraPenetration = PLAYER_RADIUS - collision2.distance;
+                      player.position += collision2.normal.x * extraPenetration;
+                      player.y += collision2.normal.y * extraPenetration;
+                      // Re-snap angle to arc
+                      const dx2 = player.position - anchor.x;
+                      const dy2 = player.y - anchor.y;
+                      player.angle = Math.atan2(dx2, dy2);
+                    }
                   }
                 }
               });
 
-              // Ground check - only if we didn't hit an obstacle that detached us
-              if (!hitObstacle && player.y >= FLOOR_Y) {
+              // Ground check - eliminate if y is at or below floor
+              if (player.y >= FLOOR_Y) {
                 player.eliminated = true;
               }
 
-              // If released (and didn't hit obstacle), transition to flying
-              if (!hitObstacle && player.grabbing === false && player.anchorId !== null) {
+              // If released, transition to flying (always allow release, regardless of obstacle)
+              if (player.grabbing === false && player.anchorId !== null) {
                 player.state = 'flying';
                 // Calculate tangent velocity from angular velocity
                 const tangentVel = player.angularVelocity * ropeLen;
@@ -972,8 +1037,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
     // Draw obstacles (rotated sticks)
     const obstacleList = obstacles();
-    ctx.fillStyle = '#4A4A4A';
-    ctx.strokeStyle = '#2A2A2A';
+    ctx.fillStyle = '#FFD700';
+    ctx.strokeStyle = '#FFD700';
     ctx.lineWidth = 2;
     obstacleList.forEach((obstacle: Obstacle) => {
       const screenX = obstacle.x - cam;
@@ -1042,12 +1107,19 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
         // Determine animation state and sprite
         let animName: keyof typeof SPRITE_FRAMES = 'idle';
+        let shouldAnimate = true; // Flag to control frame advancement
+        
         if (player.eliminated) {
           animName = 'dead';
+          shouldAnimate = true;
         } else if (player.state === 'flying') {
-          animName = player.vyy < 0 ? 'jump' : 'fall';
-        } else {
+          // When flying, use idle animation and animate it
           animName = 'idle';
+          shouldAnimate = true;
+        } else {
+          // When swinging, use idle sprite but freeze on single frame
+          animName = 'idle';
+          shouldAnimate = false;
         }
 
         // Reset animation frame when animation changes
@@ -1059,18 +1131,20 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
         const frameCount = SPRITE_FRAMES[animName];
 
-        // Update animation frame based on tick counter
-        animState.tickCounter++;
-        if (animState.tickCounter >= FRAME_ADVANCE_TICKS) {
-          animState.tickCounter = 0;
-          animState.currentFrame++;
-          // For dead animation, clamp at last frame; for others, loop
-          if (animName === 'dead') {
-            if (animState.currentFrame >= frameCount) {
-              animState.currentFrame = frameCount - 1;
+        // Update animation frame based on tick counter (only if this animation should animate)
+        if (shouldAnimate) {
+          animState.tickCounter++;
+          if (animState.tickCounter >= FRAME_ADVANCE_TICKS) {
+            animState.tickCounter = 0;
+            animState.currentFrame++;
+            // For dead animation, clamp at last frame; for others, loop
+            if (animName === 'dead') {
+              if (animState.currentFrame >= frameCount) {
+                animState.currentFrame = frameCount - 1;
+              }
+            } else {
+              animState.currentFrame %= frameCount;
             }
-          } else {
-            animState.currentFrame %= frameCount;
           }
         }
 
@@ -1085,8 +1159,18 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           const scaledWidth = SPRITE_FRAME_WIDTH * SPRITE_SCALE;
           const scaledHeight = SPRITE_FRAME_HEIGHT * SPRITE_SCALE;
 
-          // Flip horizontally if moving left
-          const facingRight = player.velocity >= 0;
+          // Determine facing direction based on horizontal velocity
+          // During flying, use stored velocity; during swinging, compute from angular velocity
+          let horizontalVel = player.velocity;
+          if (player.state === 'swinging' && player.anchorId !== null) {
+            const anchor = anchors.find((a: AnchorPoint) => a.id === player.anchorId);
+            if (anchor) {
+              const ropeLen = player.ropeLength;
+              // Horizontal velocity derivative: d/dt(anchor.x + ropeLen * sin(angle)) = ropeLen * cos(angle) * angularVelocity
+              horizontalVel = ropeLen * Math.cos(player.angle) * player.angularVelocity;
+            }
+          }
+          const facingRight = horizontalVel >= 0;
           const drawX = screenX - scaledWidth / 2;
           const drawY = player.y - scaledHeight / 2;
 
