@@ -51,24 +51,16 @@ interface Obstacle {
 const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
-const GROUND_LEVEL = 600;
-const ANCHOR_MIN_Y = 150; // Anchors spawn with room for swing arc clearance
-const ANCHOR_MAX_Y = 280; // Anchors spawn with room for swing arc clearance
-const ELIMINATION_Y = 900; // Players eliminated if they fall below this (safety net)
-const FLOOR_Y = GROUND_LEVEL;
-const ANCHOR_SPAWN_AHEAD = 1500; // Spawn anchors this far ahead of camera
-const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
 const PLAYER_RADIUS = 12;
 const OBSTACLE_MIN_WIDTH = 40;
 const OBSTACLE_MAX_WIDTH = 100;
 const OBSTACLE_MIN_HEIGHT = 30;
 const OBSTACLE_MAX_HEIGHT = 80;
-const OBSTACLE_MIN_Y = 320; // Obstacles spawn below anchors
-const OBSTACLE_MAX_Y = 540; // But above ground
-const OBSTACLE_SPAWN_AHEAD = 1500; // Same as anchors
+const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
 const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
+const OBSTACLE_GROUND_MARGIN = 50; // Margin between obstacle bottom and floor
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -80,6 +72,17 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [cameraX, setCameraX] = createSignal(0);
   const [canvasWidth, setCanvasWidth] = createSignal(1200);
   const [canvasHeight, setCanvasHeight] = createSignal(700);
+  
+  // Compute dynamic physics constants from canvas dimensions
+  const getFloorY = () => canvasHeight() - 100;
+  const getAnchorMinY = () => Math.round(canvasHeight() * 0.21); // ~150 at 700px
+  const getAnchorMaxY = () => Math.round(canvasHeight() * 0.40); // ~280 at 700px
+  const getObstacleMinY = () => Math.round(canvasHeight() * 0.46); // ~320 at 700px
+  const getObstacleMaxY = () => getFloorY() - OBSTACLE_GROUND_MARGIN - OBSTACLE_MAX_HEIGHT; // Stay above floor with margin
+  const getEliminationY = () => canvasHeight() * 1.3; // ~910 at 700px
+  const getAnchorSpawnAhead = () => Math.max(1500, canvasWidth());
+  const getObstacleSpawnAhead = () => Math.max(1500, canvasWidth());
+  
   let canvasRef: HTMLCanvasElement | undefined;
   let gameLoopId: number | null = null;
   let broadcastIntervalId: number | null = null;
@@ -91,13 +94,16 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     const anchors = [...existingAnchors];
     let nextId = Math.max(0, ...anchors.map(a => a.id)) + 1;
     
+    const ANCHOR_MIN_Y = getAnchorMinY();
+    const ANCHOR_MAX_Y = getAnchorMaxY();
+    
     // Find the rightmost anchor
     const rightmostX = anchors.length > 0 ? Math.max(...anchors.map(a => a.x)) : -500;
     
     // Generate anchors from rightmostX to maxX if needed
     if (rightmostX < maxX) {
       let currentX = rightmostX > 0 ? rightmostX : INITIAL_ANCHOR_DISTANCE;
-      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : 215;
+      let lastY = anchors.length > 0 ? anchors[anchors.length - 1].y : getAnchorMinY() + (getAnchorMaxY() - getAnchorMinY()) / 2;
       
       while (currentX < maxX) {
         const minGap = 150;
@@ -108,7 +114,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         
         if (currentX >= maxX) break;
         
-        // Vary height with some noise but keep anchors lower and closer to ground
+        // Vary height with some noise but keep anchors in valid range
         const heightVariation = (Math.random() - 0.5) * 100;
         const y = Math.max(ANCHOR_MIN_Y, Math.min(ANCHOR_MAX_Y, lastY + heightVariation));
         
@@ -126,6 +132,10 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const generateObstaclesInRange = (minX: number, maxX: number, existingObstacles: Obstacle[], anchorPoints: AnchorPoint[]): Obstacle[] => {
     const obstacles = [...existingObstacles];
     let nextId = Math.max(0, ...obstacles.map(o => o.id), ...anchorPoints.map(a => a.id)) + 1;
+    
+    const OBSTACLE_MIN_Y = getObstacleMinY();
+    const OBSTACLE_MAX_Y = getObstacleMaxY();
+    const FLOOR_Y = getFloorY();
     
     // Find the rightmost obstacle
     const rightmostX = obstacles.length > 0 ? Math.max(...obstacles.map(o => o.x)) : -500;
@@ -147,13 +157,16 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         const width = OBSTACLE_MIN_WIDTH + Math.random() * (OBSTACLE_MAX_WIDTH - OBSTACLE_MIN_WIDTH);
         const height = OBSTACLE_MIN_HEIGHT + Math.random() * (OBSTACLE_MAX_HEIGHT - OBSTACLE_MIN_HEIGHT);
         
-        // Random y position in playable space
-        const y = OBSTACLE_MIN_Y + Math.random() * (OBSTACLE_MAX_Y - OBSTACLE_MIN_Y);
+        // Random y position in playable space, ensuring it doesn't extend below ground
+        const maxY = Math.min(OBSTACLE_MAX_Y, FLOOR_Y - OBSTACLE_GROUND_MARGIN - height);
+        const minY = Math.max(OBSTACLE_MIN_Y, 0);
+        const y = minY + Math.random() * Math.max(0, maxY - minY);
         
         // Check if this obstacle overlaps with any anchors (avoid placing on top of anchors)
         const overlapsAnchor = anchorPoints.some(a => Math.abs(a.x - currentX) < 120);
         
-        if (!overlapsAnchor) {
+        // Only add if obstacle bottom doesn't extend below floor
+        if (!overlapsAnchor && y + height < FLOOR_Y) {
           obstacles.push({ x: currentX, y, width, height, id: nextId });
           nextId++;
         }
@@ -197,17 +210,23 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   };
 
   // Apply bounce collision physics - reflect velocity perpendicular to surface
-  const applyBounce = (player: PlayerState, normal: { x: number; y: number }) => {
+  const applyBounce = (player: PlayerState, normal: { x: number; y: number }, distance: number) => {
     // Reflect velocity across the surface normal
     // v_reflected = v - 2(v · n)n
     const dotProduct = player.velocity * normal.x + player.vyy * normal.y;
     player.velocity -= 2 * dotProduct * normal.x;
     player.vyy -= 2 * dotProduct * normal.y;
+    
+    // Push player fully outside obstacle (separate by full penetration depth)
+    const penetration = PLAYER_RADIUS - distance;
+    player.position += normal.x * penetration;
+    player.y += normal.y * penetration;
   };
 
   // Find the best anchor for a player to grab (two-pass algorithm with safety filter)
   const findBestAnchorForPlayer = (player: PlayerState, anchors: AnchorPoint[]): AnchorPoint | null => {
     const IDEAL_FORWARD_DISTANCE = 250; // Midpoint of anchor gap range (150-350px)
+    const FLOOR_Y = getFloorY();
     
     // Helper: check if an anchor is safe to swing from (won't crash into ground)
     const isSafeAnchor = (anchor: AnchorPoint, playerPos: PlayerState): boolean => {
@@ -215,7 +234,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       const dy = anchor.y - playerPos.y;
       const ropeLength = Math.sqrt(dx * dx + dy * dy);
       // Anchor is unsafe if the bottom of the swing arc would hit the ground
-      return anchor.y + ropeLength <= GROUND_LEVEL;
+      return anchor.y + ropeLength <= FLOOR_Y;
     };
     
     // Helper: score a forward anchor by proximity to ideal forward distance
@@ -329,11 +348,11 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     window.addEventListener('resize', resizeHandler);
 
     // Generate initial anchors
-    const anchors = generateAnchorsInRange(0, ANCHOR_SPAWN_AHEAD, []);
+    const anchors = generateAnchorsInRange(0, getAnchorSpawnAhead(), []);
     setAnchorPoints(anchors);
     
     // Generate initial obstacles
-    const obs = generateObstaclesInRange(0, OBSTACLE_SPAWN_AHEAD, [], anchors);
+    const obs = generateObstaclesInRange(0, getObstacleSpawnAhead(), [], anchors);
     setObstacles(obs);
     
     // Initialize player states - players start flying, not hanging
@@ -449,6 +468,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           const newStates = new Map(prevStates);
           const anchors = anchorPoints();
           const obstacleList = obstacles();
+          
+          const FLOOR_Y = getFloorY();
+          const ELIMINATION_Y = getEliminationY();
 
           newStates.forEach((player) => {
             if (player.eliminated) return;
@@ -463,14 +485,17 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               obstacleList.forEach((obstacle) => {
                 const collision = checkObstacleCollision(player, obstacle);
                 if (collision.collides) {
-                  applyBounce(player, collision.normal);
-                  // Push player slightly away from obstacle to prevent re-collision
-                  player.position += collision.normal.x * 2;
-                  player.y += collision.normal.y * 2;
+                  // Get actual distance for proper separation
+                  const closestX = Math.max(obstacle.x, Math.min(player.position, obstacle.x + obstacle.width));
+                  const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
+                  const dx = player.position - closestX;
+                  const dy = player.y - closestY;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  applyBounce(player, collision.normal, distance);
                 }
               });
 
-              // FIX 2: Ground collision eliminates the player
+              // Ground collision eliminates the player
               if (player.y >= FLOOR_Y) {
                 player.eliminated = true;
               }
@@ -494,7 +519,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
               // Simple pendulum physics with damping
               const g = GRAVITY;
-              const ropeLen = player.ropeLength; // FIX 1: Use per-player rope length instead of constant
+              const ropeLen = player.ropeLength; // Use per-player rope length
 
               // Angular acceleration from gravity
               const angularAccel = -(g / ropeLen) * Math.sin(player.angle);
@@ -514,12 +539,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               player.y = anchor.y + ropeLen * Math.cos(player.angle);
               player.position = anchor.x + ropeLen * Math.sin(player.angle);
 
-              // Ground check - eliminate if swinging through ground (can happen with long ropes)
-              if (player.y >= FLOOR_Y) {
-                player.eliminated = true;
-              }
-
-              // Check if swinging player hits obstacle - detach and bounce
+              // Check if swinging player hits obstacle FIRST - detach and bounce
+              // This must run before the ground check so obstacle bounce can save the player
               let hitObstacle = false;
               obstacleList.forEach((obstacle) => {
                 const collision = checkObstacleCollision(player, obstacle);
@@ -534,13 +555,22 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   player.velocity = Math.cos(player.angle) * tangentVel;
                   player.vyy = -Math.sin(player.angle) * tangentVel;
                   
-                  // Apply bounce
-                  applyBounce(player, collision.normal);
-                  // Push player slightly away from obstacle
-                  player.position += collision.normal.x * 2;
-                  player.y += collision.normal.y * 2;
+                  // Get actual distance for proper separation
+                  const closestX = Math.max(obstacle.x, Math.min(player.position, obstacle.x + obstacle.width));
+                  const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
+                  const dx = player.position - closestX;
+                  const dy = player.y - closestY;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  
+                  // Apply bounce with full separation
+                  applyBounce(player, collision.normal, distance);
                 }
               });
+
+              // Ground check - only if we didn't hit an obstacle that detached us
+              if (!hitObstacle && player.y >= FLOOR_Y) {
+                player.eliminated = true;
+              }
 
               // If released (and didn't hit obstacle), transition to flying
               if (!hitObstacle && player.grabbing === false && player.anchorId !== null) {
@@ -585,14 +615,14 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         setCameraX((cam) => {
           const newAnchors = generateAnchorsInRange(
             cam - ANCHOR_CLEANUP_BEHIND,
-            cam + ANCHOR_SPAWN_AHEAD,
+            cam + getAnchorSpawnAhead(),
             anchorPoints()
           );
           setAnchorPoints(newAnchors);
           
           const newObstacles = generateObstaclesInRange(
             cam - OBSTACLE_CLEANUP_BEHIND,
-            cam + OBSTACLE_SPAWN_AHEAD,
+            cam + getObstacleSpawnAhead(),
             obstacles(),
             newAnchors
           );
