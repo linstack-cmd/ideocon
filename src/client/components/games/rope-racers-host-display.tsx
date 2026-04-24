@@ -145,7 +145,7 @@ const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
 const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
 const OBSTACLE_GROUND_MARGIN = 50; // Margin between obstacle bottom and floor
-const GRAB_BOOST = 0.01; // Fixed angular velocity boost on grab
+const GRAB_BOOST = 0.002; // Fixed angular velocity boost on grab
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -724,11 +724,16 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 // If the collision normal is pointing opposite to the velocity direction,
                 // flip it so we always bounce away from the obstacle we're approaching
                 const velocityDot = player.velocity * collisionNormal.x + player.vyy * collisionNormal.y;
+                let wasFlipped = false;
                 if (velocityDot >= 0) {
                   // Normal is pointing same direction as velocity (wrong way) — flip it
                   collisionNormal.x = -collisionNormal.x;
                   collisionNormal.y = -collisionNormal.y;
+                  wasFlipped = true;
                 }
+                
+                // Debug logging for double-bounce investigation
+                console.log('[bounce]', player.color, 'dot:', velocityDot.toFixed(3), 'flipped:', wasFlipped, 'normal:', collisionNormal, 'vel after bounce:', {vx: (player.velocity - 2 * velocityDot * collisionNormal.x).toFixed(2), vy: (player.vyy - 2 * velocityDot * collisionNormal.y).toFixed(2)});
                 
                 // Apply bounce with actual collision distance for proper penetration
                 applyBounce(player, collisionNormal, collisionDistance);
