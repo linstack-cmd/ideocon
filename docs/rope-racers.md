@@ -1,6 +1,6 @@
 # Rope Racers
 
-Swing from anchor to anchor without touching the ground. Last player swinging wins.
+Swing through an endless obstacle course. Touch the ground or fall behind the pack and you're out. Last player swinging wins.
 
 ---
 
@@ -10,39 +10,57 @@ Swing from anchor to anchor without touching the ground. Last player swinging wi
 2. Enter your name.
 3. Wait in the lobby — the host starts the game from their screen.
 
+Your controller will display your unique color, which matches how you appear on the host screen.
+
 ---
 
 ## How to Play
 
-When the **3-2-1-GO** countdown ends, you're hanging from your first anchor and physics are live.
+When the **3-2-1-GO** countdown ends, everyone launches forward airborne with a running start.
 
-**Your controller has one button.** That's it.
+**Your controller has one button.**
 
-| State | Button label | What it does |
+| Button label | What's happening | What it does |
 |---|---|---|
-| Flying through the air | **GRAB** | Press and hold to latch onto the nearest anchor |
-| Attached to an anchor | **GRABBING** | Release to let go and fly |
+| **GRAB** | You're flying free | Press and hold to latch onto the nearest anchor |
+| **GRABBING** | You're on a rope | Release to let go and fly |
+
+Hold to swing. Release to fly. That's the whole game.
 
 ### Reading the host screen
 
-The host screen shows the full track — all players, ropes, and anchor points. Each player has a **gold indicator** pointing to the anchor they'd grab if they pressed now. Use this to time your release and pick your next target.
+The host screen shows all players on a full-screen canvas, each in their unique color. A **gold indicator ring** shows which anchor each player would grab if they pressed now. Use it to spot your next target and time your release.
 
-### Swinging
+### Swing physics
 
-You swing like a pendulum. The trick is in the release:
+Your momentum is fully preserved — grab an anchor fast and you keep your speed going into the swing. No energy is lost. The trick is in the release:
 
-- Let go **at the peak of your forward arc** to carry maximum momentum into your next flight.
-- Release too early or too late and you'll stall or drop.
-- Gravity is always pulling you down while you're airborne — don't coast.
+- Let go at the **peak of your forward arc** to launch forward with maximum speed.
+- Release too early or too late and you'll lose height and fall behind.
 
 ### Anchors
 
-Anchors are scattered overhead at different heights. The track is infinite — new anchors appear as players advance. Look ahead on the host screen to plan your path.
+Anchors hang overhead along the track. The gold indicator on the host screen always shows your nearest reachable anchor — the game favors anchors that give you good forward momentum. The track is infinite and procedurally generated, so there's always more ahead.
+
+### Obstacles
+
+Narrow angled obstacles appear along the track. **Hitting one bounces you — it doesn't eliminate you.** Your energy is preserved on impact, so a well-timed bounce can actually work in your favor.
 
 ---
 
-## Elimination & Winning
+## Elimination
 
-**Touch the ground = eliminated.** No second chances.
+You're out if:
 
-The last player still swinging wins. In single-player, the goal is simply to survive as long as possible.
+- You **touch the ground** (bottom of the screen) — while flying or while on a rope
+- You **fall behind the left edge of the screen** — the camera follows the leader, and it won't wait for you
+
+Stay moving forward. Falling behind is just as deadly as falling down.
+
+---
+
+## Winning
+
+The **last player still in the game wins.** A Play Again button appears on the winner screen to restart immediately with the same players.
+
+**Solo play:** no elimination by camera — just survive as long as you can.

@@ -41,10 +41,11 @@ interface AnchorPoint {
 }
 
 interface Obstacle {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  x: number; // center x
+  y: number; // center y
+  width: number; // 5-15px (very narrow stick)
+  height: number; // 80-200px (tall stick)
+  angle: number; // rotation angle in radians
   id: number;
 }
 
@@ -53,10 +54,10 @@ const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
 const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
 const PLAYER_RADIUS = 12;
-const OBSTACLE_MIN_WIDTH = 40;
-const OBSTACLE_MAX_WIDTH = 100;
-const OBSTACLE_MIN_HEIGHT = 30;
-const OBSTACLE_MAX_HEIGHT = 80;
+const OBSTACLE_MIN_WIDTH = 5;   // Very narrow stick
+const OBSTACLE_MAX_WIDTH = 15;  // Very narrow stick
+const OBSTACLE_MIN_HEIGHT = 80; // Tall stick
+const OBSTACLE_MAX_HEIGHT = 200; // Tall stick
 const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
 const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
@@ -153,21 +154,26 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         
         if (currentX >= maxX) break;
         
-        // Random obstacle size
+        // Random obstacle size - narrow sticks
         const width = OBSTACLE_MIN_WIDTH + Math.random() * (OBSTACLE_MAX_WIDTH - OBSTACLE_MIN_WIDTH);
         const height = OBSTACLE_MIN_HEIGHT + Math.random() * (OBSTACLE_MAX_HEIGHT - OBSTACLE_MIN_HEIGHT);
         
-        // Random y position in playable space, ensuring it doesn't extend below ground
-        const maxY = Math.min(OBSTACLE_MAX_Y, FLOOR_Y - OBSTACLE_GROUND_MARGIN - height);
-        const minY = Math.max(OBSTACLE_MIN_Y, 0);
+        // Random y position in playable space, ensuring center is in valid range
+        // Account for rotated bounds: max extent from center is sqrt(width^2 + height^2)/2
+        const maxExtent = Math.sqrt(width * width + height * height) / 2;
+        const maxY = Math.min(OBSTACLE_MAX_Y, FLOOR_Y - OBSTACLE_GROUND_MARGIN - maxExtent);
+        const minY = Math.max(OBSTACLE_MIN_Y, maxExtent);
         const y = minY + Math.random() * Math.max(0, maxY - minY);
+        
+        // Random rotation angle (full 360 degrees)
+        const angle = Math.random() * Math.PI * 2;
         
         // Check if this obstacle overlaps with any anchors (avoid placing on top of anchors)
         const overlapsAnchor = anchorPoints.some(a => Math.abs(a.x - currentX) < 120);
         
-        // Only add if obstacle bottom doesn't extend below floor
-        if (!overlapsAnchor && y + height < FLOOR_Y) {
-          obstacles.push({ x: currentX, y, width, height, id: nextId });
+        // Only add if obstacle center is in valid space
+        if (!overlapsAnchor) {
+          obstacles.push({ x: currentX, y, width, height, angle, id: nextId });
           nextId++;
         }
       }
@@ -177,36 +183,53 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     return obstacles.filter(o => o.x >= minX);
   };
 
-  // Check collision between player circle and obstacle rectangle
-  const checkObstacleCollision = (player: PlayerState, obstacle: Obstacle): { collides: boolean; normal: { x: number; y: number } } => {
-    // Find the closest point on the rectangle to the circle center
-    const closestX = Math.max(obstacle.x, Math.min(player.position, obstacle.x + obstacle.width));
-    const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
+  // Check collision between player circle and rotated obstacle rectangle
+  const checkObstacleCollision = (player: PlayerState, obstacle: Obstacle): { collides: boolean; normal: { x: number; y: number }; distance: number } => {
+    // Transform player position into obstacle's local space (rotate backwards)
+    const cos = Math.cos(-obstacle.angle);
+    const sin = Math.sin(-obstacle.angle);
+    const dx = player.position - obstacle.x;
+    const dy = player.y - obstacle.y;
     
-    // Calculate distance between circle center and closest point
-    const dx = player.position - closestX;
-    const dy = player.y - closestY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    // Rotate player position into local space
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+    
+    // AABB collision in local space - find closest point on rectangle to circle center
+    // Rectangle is centered at origin with width and height
+    const halfWidth = obstacle.width / 2;
+    const halfHeight = obstacle.height / 2;
+    
+    const closestLocalX = Math.max(-halfWidth, Math.min(localX, halfWidth));
+    const closestLocalY = Math.max(-halfHeight, Math.min(localY, halfHeight));
+    
+    // Distance from circle center to closest point
+    const distLocalX = localX - closestLocalX;
+    const distLocalY = localY - closestLocalY;
+    const distance = Math.sqrt(distLocalX * distLocalX + distLocalY * distLocalY);
     
     if (distance < PLAYER_RADIUS) {
-      // Collision detected! Calculate normal vector (perpendicular to surface)
-      let normalX = dx;
-      let normalY = dy;
+      // Collision detected! Calculate normal in local space
+      let normalLocalX = distLocalX;
+      let normalLocalY = distLocalY;
       
-      // Normalize the normal vector
       if (distance > 0) {
-        normalX /= distance;
-        normalY /= distance;
+        normalLocalX /= distance;
+        normalLocalY /= distance;
       } else {
-        // If we're exactly at closest point, use a default normal
-        normalX = 1;
-        normalY = 0;
+        // Default normal if exactly at closest point
+        normalLocalX = 1;
+        normalLocalY = 0;
       }
       
-      return { collides: true, normal: { x: normalX, y: normalY } };
+      // Transform normal back to world space
+      const normalWorldX = normalLocalX * cos + normalLocalY * sin;
+      const normalWorldY = -normalLocalX * sin + normalLocalY * cos;
+      
+      return { collides: true, normal: { x: normalWorldX, y: normalWorldY }, distance };
     }
     
-    return { collides: false, normal: { x: 0, y: 0 } };
+    return { collides: false, normal: { x: 0, y: 0 }, distance };
   };
 
   // Apply bounce collision physics - reflect velocity perpendicular to surface
@@ -218,9 +241,12 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     player.vyy -= 2 * dotProduct * normal.y;
     
     // Push player fully outside obstacle (separate by full penetration depth)
+    // Penetration is how far the player center has penetrated the PLAYER_RADIUS boundary
     const penetration = PLAYER_RADIUS - distance;
-    player.position += normal.x * penetration;
-    player.y += normal.y * penetration;
+    if (penetration > 0) {
+      player.position += normal.x * penetration;
+      player.y += normal.y * penetration;
+    }
   };
 
   // Find the best anchor for a player to grab (two-pass algorithm with safety filter)
@@ -357,6 +383,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     
     // Initialize player states - players start flying, not hanging
     const states = new Map<string, PlayerState>();
+    const initialPlayerY = Math.round(canvasHeight() * 0.286); // 200px at 700px canvas height, scales with canvas
     props.players.forEach((player) => {
       // All players start flying at the left edge with velocity toward first anchor
       states.set(player.id, {
@@ -365,7 +392,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         color: player.color,
         position: 0,
         velocity: 5,
-        y: 200,
+        y: initialPlayerY,
         vyy: 0,
         state: 'flying',
         grabbing: false,
@@ -485,13 +512,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               obstacleList.forEach((obstacle) => {
                 const collision = checkObstacleCollision(player, obstacle);
                 if (collision.collides) {
-                  // Get actual distance for proper separation
-                  const closestX = Math.max(obstacle.x, Math.min(player.position, obstacle.x + obstacle.width));
-                  const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
-                  const dx = player.position - closestX;
-                  const dy = player.y - closestY;
-                  const distance = Math.sqrt(dx * dx + dy * dy);
-                  applyBounce(player, collision.normal, distance);
+                  applyBounce(player, collision.normal, collision.distance);
                 }
               });
 
@@ -555,15 +576,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   player.velocity = Math.cos(player.angle) * tangentVel;
                   player.vyy = -Math.sin(player.angle) * tangentVel;
                   
-                  // Get actual distance for proper separation
-                  const closestX = Math.max(obstacle.x, Math.min(player.position, obstacle.x + obstacle.width));
-                  const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
-                  const dx = player.position - closestX;
-                  const dy = player.y - closestY;
-                  const distance = Math.sqrt(dx * dx + dy * dy);
-                  
                   // Apply bounce with full separation
-                  applyBounce(player, collision.normal, distance);
+                  applyBounce(player, collision.normal, collision.distance);
                 }
               });
 
@@ -663,7 +677,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         props.onBroadcastState({
           players: playersData,
           anchors: anchors.map((a: AnchorPoint) => ({ x: a.x, y: a.y })),
-          obstacles: obstacleList.map((o: Obstacle) => ({ x: o.x, y: o.y, width: o.width, height: o.height })),
+          obstacles: obstacleList.map((o: Obstacle) => ({ x: o.x, y: o.y, width: o.width, height: o.height, angle: o.angle })),
           winner: winner(),
           gameStarted: gameStarted(),
         });
@@ -715,17 +729,30 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       ctx.fill();
     });
 
-    // Draw obstacles
+    // Draw obstacles (rotated sticks)
     const obstacleList = obstacles();
     ctx.fillStyle = '#4A4A4A';
     ctx.strokeStyle = '#2A2A2A';
     ctx.lineWidth = 2;
     obstacleList.forEach((obstacle: Obstacle) => {
       const screenX = obstacle.x - cam;
-      if (screenX < -obstacle.width - 50 || screenX > canvas.width + 50) return;
+      
+      // Cull obstacles far off-screen
+      const maxExtent = Math.sqrt(obstacle.width * obstacle.width + obstacle.height * obstacle.height) / 2;
+      if (screenX < -maxExtent - 50 || screenX > canvas.width + maxExtent + 50) return;
 
-      ctx.fillRect(screenX, obstacle.y, obstacle.width, obstacle.height);
-      ctx.strokeRect(screenX, obstacle.y, obstacle.width, obstacle.height);
+      // Save canvas state, translate to obstacle center, rotate, draw, restore
+      ctx.save();
+      ctx.translate(screenX, obstacle.y);
+      ctx.rotate(obstacle.angle);
+      
+      // Draw rectangle centered at origin (obstacle is centered)
+      const halfWidth = obstacle.width / 2;
+      const halfHeight = obstacle.height / 2;
+      ctx.fillRect(-halfWidth, -halfHeight, obstacle.width, obstacle.height);
+      ctx.strokeRect(-halfWidth, -halfHeight, obstacle.width, obstacle.height);
+      
+      ctx.restore();
     });
 
     // Draw players and ropes
