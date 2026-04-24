@@ -145,7 +145,7 @@ const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
 const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
 const OBSTACLE_GROUND_MARGIN = 50; // Margin between obstacle bottom and floor
-const GRAB_BOOST = 0.05; // Fixed angular velocity boost on grab
+const GRAB_BOOST = 0.01; // Fixed angular velocity boost on grab
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
