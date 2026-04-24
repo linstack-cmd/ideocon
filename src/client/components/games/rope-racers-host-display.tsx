@@ -135,7 +135,6 @@ interface Obstacle {
 
 const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
-const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
 const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
 const PLAYER_RADIUS = 12;
 const OBSTACLE_MIN_WIDTH = 5;   // Very narrow stick
@@ -195,7 +194,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const SPRITE_SCALE = 3; // Scale up 3x for visibility
   
   // Compute dynamic physics constants from canvas dimensions
-  const getFloorY = () => canvasHeight() - 100;
+  const getFloorY = () => canvasHeight();
   const getAnchorMinY = () => Math.round(canvasHeight() * 0.21); // ~150 at 700px
   const getAnchorMaxY = () => Math.round(canvasHeight() * 0.40); // ~280 at 700px
   const getObstacleMinY = () => Math.round(canvasHeight() * 0.46); // ~320 at 700px
@@ -390,19 +389,12 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       return Math.abs(horizontalDist - IDEAL_FORWARD_DISTANCE);
     };
     
-    // Pass 1: Find safe forward anchors (ahead of player, within grab radius, safe to swing from)
+    // Pass 1: Find safe forward anchors (ahead of player, safe to swing from)
     const forwardCandidates: AnchorPoint[] = [];
     
     anchors.forEach((anchor: AnchorPoint) => {
       // Must be ahead of the player
       if (anchor.x <= player.position) return;
-      
-      const dx = anchor.x - player.position;
-      const dy = anchor.y - player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      // Must be within grab radius
-      if (dist >= ANCHOR_GRAB_RADIUS) return;
       
       // Must be safe (won't crash into ground)
       if (!isSafeAnchor(anchor, player)) return;
@@ -432,13 +424,6 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     anchors.forEach((anchor: AnchorPoint) => {
       // Must be behind the player
       if (anchor.x >= player.position) return;
-      
-      const dx = anchor.x - player.position;
-      const dy = anchor.y - player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      // Must be within grab radius
-      if (dist >= ANCHOR_GRAB_RADIUS) return;
       
       // Must be safe
       if (!isSafeAnchor(anchor, player)) return;
@@ -724,24 +709,55 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               player.y = anchor.y + ropeLen * Math.cos(player.angle);
               player.position = anchor.x + ropeLen * Math.sin(player.angle);
 
-              // Check if swinging player hits obstacle FIRST - detach and bounce
+              // Check if swinging player hits obstacle - bounce while staying attached to rope
               // This must run before the ground check so obstacle bounce can save the player
               let hitObstacle = false;
               obstacleList.forEach((obstacle) => {
                 const collision = checkObstacleCollision(player, obstacle);
                 if (collision.collides && !hitObstacle) {
                   hitObstacle = true;
-                  // Detach from rope and transition to flying
-                  player.state = 'flying';
-                  player.grabbing = false;
                   
-                  // Calculate tangent velocity from angular velocity before bounce
+                  // Stay on rope - apply bounce as angular velocity impulse
+                  // Calculate current velocity from angular velocity
                   const tangentVel = player.angularVelocity * ropeLen;
-                  player.velocity = Math.cos(player.angle) * tangentVel;
-                  player.vyy = -Math.sin(player.angle) * tangentVel;
+                  const oldVelocity = { x: Math.cos(player.angle) * tangentVel, y: -Math.sin(player.angle) * tangentVel };
                   
-                  // Apply bounce with full separation
-                  applyBounce(player, collision.normal, collision.distance);
+                  // Apply bounce reflection to velocity (temporary velocity for impulse calculation)
+                  const normal = collision.normal;
+                  const dotProduct = oldVelocity.x * normal.x + oldVelocity.y * normal.y;
+                  const newVelocity = {
+                    x: oldVelocity.x - 2 * dotProduct * normal.x,
+                    y: oldVelocity.y - 2 * dotProduct * normal.y,
+                  };
+                  
+                  // Calculate velocity delta
+                  const deltaVel = {
+                    x: newVelocity.x - oldVelocity.x,
+                    y: newVelocity.y - oldVelocity.y,
+                  };
+                  
+                  // Project delta velocity onto tangent direction
+                  const tangentX = Math.cos(player.angle);
+                  const tangentY = -Math.sin(player.angle);
+                  const deltaVelTangential = deltaVel.x * tangentX + deltaVel.y * tangentY;
+                  
+                  // Convert change in velocity to change in angular velocity
+                  const deltaAngularVel = deltaVelTangential / ropeLen;
+                  player.angularVelocity += deltaAngularVel;
+                  
+                  // Position correction: push player out of obstacle along normal
+                  const penetration = PLAYER_RADIUS - collision.distance;
+                  if (penetration > 0) {
+                    const correctedX = player.position + normal.x * penetration;
+                    const correctedY = player.y + normal.y * penetration;
+                    
+                    // Re-derive angle from corrected position relative to anchor
+                    const dx = correctedX - anchor.x;
+                    const dy = correctedY - anchor.y;
+                    player.angle = Math.atan2(dx, dy);
+                    
+                    // Note: ropeLength stays unchanged - pendulum equation will snap position back to arc
+                  }
                 }
               });
 
@@ -914,9 +930,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       }
     });
 
-    // Draw ground on top as visual element
-    ctx.fillStyle = '#34A853';
-    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+
   };
 
   // Render frame - called from within the game loop
@@ -1140,18 +1154,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       ctx.fillText(countdown > 0 ? countdown.toString() : 'GO!', canvas.width / 2, canvas.height / 2);
     }
 
-    if (winner()) {
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 48px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(winner()!, canvas.width / 2, canvas.height / 2 - 40);
-
-      ctx.font = 'bold 20px Arial';
-      ctx.fillText('(Press Play Again button below)', canvas.width / 2, canvas.height / 2 + 30);
-    }
   };
 
   onCleanup(() => {
@@ -1189,6 +1192,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           'justify-content': 'center',
           gap: '2rem',
           'pointer-events': 'none',
+          'background-color': 'rgba(0,0,0,0.5)',
         }}>
           <div style={{
             'font-size': '4rem',
@@ -1198,6 +1202,15 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
             'text-align': 'center',
           }}>
             {winner()}
+          </div>
+          <div style={{
+            'font-size': '1.3rem',
+            'font-weight': 'bold',
+            color: '#FFFFFF',
+            'text-shadow': '0 0 10px rgba(0,0,0,0.8)',
+            'text-align': 'center',
+          }}>
+            (Press Play Again button below)
           </div>
         </div>
       )}
