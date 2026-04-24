@@ -604,8 +604,20 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     // Capture elimination results to avoid signal re-read issues
     let lastAlivePlayers: PlayerState[] = [];
 
+    // Delta-time constants
+    const TARGET_FRAME_TIME = 1000 / 60; // 60Hz baseline
+    const MAX_DELTA_TIME = 3.0; // Max dt to prevent physics explosion if tab was backgrounded
+    let lastTimestamp: number | null = null;
+
     // Game loop - runs physics and rendering together
-    const tick = () => {
+    const tick = (timestamp: number) => {
+      // Compute delta-time
+      let dt = 1.0;
+      if (lastTimestamp !== null) {
+        const deltaTime = timestamp - lastTimestamp;
+        dt = Math.min(deltaTime / TARGET_FRAME_TIME, MAX_DELTA_TIME);
+      }
+      lastTimestamp = timestamp;
       // Only process events and physics if game has started
       if (gameStarted()) {
         // Process any queued events from the game events signal
@@ -694,10 +706,10 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               const oldX = player.position;
               const oldY = player.y;
               
-              // Apply gravity
-              player.vyy += GRAVITY;
-              const newY = oldY + player.vyy;
-              const newX = oldX + player.velocity;
+              // Apply gravity (scaled by delta-time)
+              player.vyy += GRAVITY * dt;
+              const newY = oldY + player.vyy * dt;
+              const newX = oldX + player.velocity * dt;
 
               // Check obstacle collisions with CCD and bounce
               let collided = false;
@@ -717,8 +729,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               
               if (collided) {
                 // Move to collision point
-                player.position = oldX + player.velocity * earliestT;
-                player.y = oldY + player.vyy * earliestT;
+                player.position = oldX + player.velocity * dt * earliestT;
+                player.y = oldY + player.vyy * dt * earliestT;
                 
                 // Approach-direction-aware normal selection:
                 // If the collision normal is pointing opposite to the velocity direction,
@@ -769,15 +781,15 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               const g = GRAVITY;
               const ropeLen = player.ropeLength; // Use per-player rope length
 
-              // Angular acceleration from gravity
+              // Angular acceleration from gravity (scaled by delta-time)
               const angularAccel = -(g / ropeLen) * Math.sin(player.angle);
-              player.angularVelocity += angularAccel;
+              player.angularVelocity += angularAccel * dt;
               
-              player.angle += player.angularVelocity;
+              player.angle += player.angularVelocity * dt;
 
               // Clamp angle to prevent wrapping
               if (Math.abs(player.angle) > Math.PI * 0.9) {
-                player.angularVelocity *= 0.9;
+                player.angularVelocity *= Math.pow(0.9, dt);
                 if (Math.abs(player.angle) > Math.PI) {
                   player.angle = Math.sign(player.angle) * Math.PI;
                 }
@@ -927,7 +939,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
       // Render to canvas
       if (canvasRef) {
-        renderFrame();
+        renderFrame(dt);
       }
 
       gameLoopId = requestAnimationFrame(tick);
@@ -1033,7 +1045,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   };
 
   // Render frame - called from within the game loop
-  const renderFrame = () => {
+  const renderFrame = (dt: number = 1.0) => {
     const canvas = canvasRef;
     if (!canvas) return;
 
@@ -1050,7 +1062,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     });
 
     const targetCameraX = Math.max(0, maxX - canvas.width * 0.3);
-    const smoothCamera = cameraX() + (targetCameraX - cameraX()) * 0.1;
+    const smoothCamera = cameraX() + (targetCameraX - cameraX()) * (1 - Math.pow(0.9, dt));
     setCameraX(smoothCamera);
 
     const cam = smoothCamera;
@@ -1167,9 +1179,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
         // Update animation frame based on tick counter (only if this animation should animate)
         if (shouldAnimate) {
-          animState.tickCounter++;
+          animState.tickCounter += dt;
           if (animState.tickCounter >= FRAME_ADVANCE_TICKS) {
-            animState.tickCounter = 0;
+            animState.tickCounter -= FRAME_ADVANCE_TICKS;
             animState.currentFrame++;
             // For dead animation, clamp at last frame; for others, loop
             if (animName === 'dead') {
