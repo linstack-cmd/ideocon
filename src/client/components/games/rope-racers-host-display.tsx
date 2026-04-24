@@ -2,6 +2,90 @@
 
 import { createSignal, createEffect, For, onCleanup, onMount } from 'solid-js';
 
+// Asset loading and caching
+interface LoadedAssets {
+  backgroundLayers: HTMLImageElement[];
+  sprites: {
+    idle: HTMLImageElement;
+    jump: HTMLImageElement;
+    fall: HTMLImageElement;
+    dead: HTMLImageElement;
+  };
+  loaded: boolean;
+}
+
+// Per-player sprite cache with tinted versions
+interface TintedSpriteCache {
+  [color: string]: {
+    idle: OffscreenCanvas | null;
+    jump: OffscreenCanvas | null;
+    fall: OffscreenCanvas | null;
+    dead: OffscreenCanvas | null;
+  };
+}
+
+// Utility: convert hex color to RGB
+const hexToRGB = (hex: string): { r: number; g: number; b: number } => {
+  const cleaned = hex.replace('#', '');
+  const r = parseInt(cleaned.substring(0, 2), 16);
+  const g = parseInt(cleaned.substring(2, 4), 16);
+  const b = parseInt(cleaned.substring(4, 6), 16);
+  return { r, g, b };
+};
+
+// Utility: get luminance of a color
+const getLuminance = (r: number, g: number, b: number): number => {
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+};
+
+// Utility: tint a sprite image with a color using luminance-based blending
+const tintSpriteImage = (
+  img: HTMLImageElement,
+  hexColor: string
+): OffscreenCanvas => {
+  const canvas = new OffscreenCanvas(img.width, img.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Failed to get canvas context');
+
+  // Draw original image
+  ctx.drawImage(img, 0, 0);
+
+  // Get pixel data
+  const imageData = ctx.getImageData(0, 0, img.width, img.height);
+  const data = imageData.data;
+
+  // Get target color
+  const targetRGB = hexToRGB(hexColor);
+
+  // Apply luminance-based tint per pixel
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+
+    // Skip fully transparent pixels
+    if (a === 0) continue;
+
+    // Get grayscale value (luminance)
+    const gray = getLuminance(r, g, b);
+
+    // Normalize gray to 0-1 range
+    const normalized = gray / 255;
+
+    // Apply tint: multiply normalized grayscale by target color
+    data[i] = Math.round(targetRGB.r * normalized);
+    data[i + 1] = Math.round(targetRGB.g * normalized);
+    data[i + 2] = Math.round(targetRGB.b * normalized);
+    // Keep alpha unchanged
+  }
+
+  // Put tinted data back
+  ctx.putImageData(imageData, 0, 0);
+
+  return canvas;
+};
+
 interface RopeRacersHostDisplayProps {
   gameState: any;
   gameEvents: any[];
@@ -73,6 +157,42 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [cameraX, setCameraX] = createSignal(0);
   const [canvasWidth, setCanvasWidth] = createSignal(1200);
   const [canvasHeight, setCanvasHeight] = createSignal(700);
+  const [assetsLoaded, setAssetsLoaded] = createSignal(false);
+
+  // Asset and sprite caching
+  let assets: LoadedAssets = {
+    backgroundLayers: [],
+    sprites: {
+      idle: new Image(),
+      jump: new Image(),
+      fall: new Image(),
+      dead: new Image(),
+    },
+    loaded: false,
+  };
+
+  let tintedSpriteCache: TintedSpriteCache = {};
+
+  // Animation state per player
+  interface PlayerAnimationState {
+    currentFrame: number;
+    tickCounter: number;
+    previousAnimName: keyof typeof SPRITE_FRAMES | null;
+  }
+  let playerAnimationStates: Map<string, PlayerAnimationState> = new Map();
+
+  // Frame counts per animation
+  const SPRITE_FRAMES = {
+    idle: 11,
+    jump: 1,
+    fall: 1,
+    dead: 4,
+  };
+
+  const FRAME_ADVANCE_TICKS = 6; // Advance animation every 6 ticks (~10fps animation)
+  const SPRITE_FRAME_WIDTH = 34; // Each frame is 34px wide
+  const SPRITE_FRAME_HEIGHT = 28; // Height is 28px
+  const SPRITE_SCALE = 3; // Scale up 3x for visibility
   
   // Compute dynamic physics constants from canvas dimensions
   const getFloorY = () => canvasHeight() - 100;
@@ -352,8 +472,52 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     return null;
   };
 
+  // Load assets
+  const loadAssets = async () => {
+    try {
+      // Load background layers
+      const layerPromises = [];
+      for (let i = 1; i <= 7; i++) {
+        const img = new Image();
+        img.src = `/backgrounds/layer-${i}.png`;
+        layerPromises.push(
+          new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error(`Failed to load layer-${i}.png`));
+          })
+        );
+        assets.backgroundLayers.push(img);
+      }
+
+      // Load sprite sheets
+      const spritePromises: Promise<void>[] = [];
+
+      ['idle', 'jump', 'fall', 'dead'].forEach((name: string) => {
+        const img = new Image();
+        img.src = `/sprites/${name}.png`;
+        assets.sprites[name as keyof typeof assets.sprites] = img;
+        spritePromises.push(
+          new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error(`Failed to load ${name}.png`));
+          })
+        );
+      });
+
+      // Wait for all assets
+      await Promise.all([...layerPromises, ...spritePromises]);
+      assets.loaded = true;
+      setAssetsLoaded(true);
+    } catch (err) {
+      console.error('Failed to load game assets:', err);
+    }
+  };
+
   // Initialize game
   onMount(() => {
+    // Load assets first
+    loadAssets();
+
     // Handle canvas resize
     resizeHandler = () => {
       if (canvasRef) {
@@ -687,6 +851,74 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
 
 
+  // Get or create tinted sprite for a player color
+  const getTintedSprite = (color: string, animName: keyof typeof SPRITE_FRAMES): OffscreenCanvas | null => {
+    if (!tintedSpriteCache[color]) {
+      tintedSpriteCache[color] = {
+        idle: null,
+        jump: null,
+        fall: null,
+        dead: null,
+      };
+    }
+
+    if (!tintedSpriteCache[color][animName]) {
+      const spriteSheet = assets.sprites[animName];
+      if (!spriteSheet || !spriteSheet.complete) return null;
+
+      try {
+        tintedSpriteCache[color][animName] = tintSpriteImage(spriteSheet, color);
+      } catch (err) {
+        console.warn(`Failed to tint sprite ${animName} for color ${color}:`, err);
+        return null;
+      }
+    }
+
+    return tintedSpriteCache[color][animName];
+  };
+
+  // Draw parallax background
+  const drawParallaxBackground = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, cam: number) => {
+    if (!assets.loaded || assets.backgroundLayers.length === 0) {
+      // Fallback if assets not loaded
+      ctx.fillStyle = '#87CEEB';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    // Disable image smoothing for pixel art
+    ctx.imageSmoothingEnabled = false;
+
+    // Layer dimensions (all layers are 576x324)
+    const LAYER_WIDTH = 576;
+    const LAYER_HEIGHT = 324;
+
+    // Draw each layer with parallax scrolling
+    assets.backgroundLayers.forEach((layer, layerIndex) => {
+      if (!layer.complete) return;
+
+      // Parallax speed: layer 1 moves slowest (~10%), layer 7 moves fastest (~95%)
+      // Linear interpolation from 0.1 to 0.95
+      const parallaxFactor = 0.1 + (layerIndex / (assets.backgroundLayers.length - 1)) * 0.85;
+      const scrollOffset = cam * parallaxFactor;
+
+      // Scale to fit canvas height
+      const scaledWidth = (canvas.height / LAYER_HEIGHT) * LAYER_WIDTH;
+      const scaledHeight = canvas.height;
+
+      // Draw tiled layer with wrapping
+      let xPos = -(scrollOffset % scaledWidth);
+      while (xPos < canvas.width) {
+        ctx.drawImage(layer, xPos, 0, scaledWidth, scaledHeight);
+        xPos += scaledWidth;
+      }
+    });
+
+    // Draw ground on top as visual element
+    ctx.fillStyle = '#34A853';
+    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+  };
+
   // Render frame - called from within the game loop
   const renderFrame = () => {
     const canvas = canvasRef;
@@ -697,14 +929,6 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
     const states = playerStates();
     const anchors = anchorPoints();
-
-    // Clear canvas
-    ctx.fillStyle = '#87CEEB';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw ground
-    ctx.fillStyle = '#34A853';
-    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
 
     // Calculate camera position (follow the leader among alive players)
     let maxX: number = 0;
@@ -717,6 +941,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     setCameraX(smoothCamera);
 
     const cam = smoothCamera;
+
+    // Draw parallax background with computed smooth camera
+    drawParallaxBackground(ctx, canvas, cam);
 
     // Draw anchor points
     ctx.fillStyle = '#8B4513';
@@ -790,23 +1017,114 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         }
       }
 
-      // Draw player character using player's assigned color
-      ctx.fillStyle = player.eliminated ? '#666666' : (player.color || '#FF6B6B');
-      ctx.beginPath();
-      ctx.arc(screenX, player.y, 12, 0, Math.PI * 2);
-      ctx.fill();
+      // Draw player sprite
+      if (assets.loaded && player.color) {
+        // Initialize animation state if needed
+        if (!playerAnimationStates.has(player.id)) {
+          playerAnimationStates.set(player.id, { currentFrame: 0, tickCounter: 0, previousAnimName: null });
+        }
+
+        const animState = playerAnimationStates.get(player.id)!;
+
+        // Determine animation state and sprite
+        let animName: keyof typeof SPRITE_FRAMES = 'idle';
+        if (player.eliminated) {
+          animName = 'dead';
+        } else if (player.state === 'flying') {
+          animName = player.vyy < 0 ? 'jump' : 'fall';
+        } else {
+          animName = 'idle';
+        }
+
+        // Reset animation frame when animation changes
+        if (animState.previousAnimName !== animName) {
+          animState.currentFrame = 0;
+          animState.tickCounter = 0;
+          animState.previousAnimName = animName;
+        }
+
+        const frameCount = SPRITE_FRAMES[animName];
+
+        // Update animation frame based on tick counter
+        animState.tickCounter++;
+        if (animState.tickCounter >= FRAME_ADVANCE_TICKS) {
+          animState.tickCounter = 0;
+          animState.currentFrame++;
+          // For dead animation, clamp at last frame; for others, loop
+          if (animName === 'dead') {
+            if (animState.currentFrame >= frameCount) {
+              animState.currentFrame = frameCount - 1;
+            }
+          } else {
+            animState.currentFrame %= frameCount;
+          }
+        }
+
+        // Get tinted sprite
+        const tintedSprite = player.eliminated
+          ? getTintedSprite('#666666', animName)
+          : getTintedSprite(player.color, animName);
+
+        if (tintedSprite) {
+          // Draw sprite with frame selection
+          const frameX = animState.currentFrame * SPRITE_FRAME_WIDTH;
+          const scaledWidth = SPRITE_FRAME_WIDTH * SPRITE_SCALE;
+          const scaledHeight = SPRITE_FRAME_HEIGHT * SPRITE_SCALE;
+
+          // Flip horizontally if moving left
+          const facingRight = player.velocity >= 0;
+          const drawX = screenX - scaledWidth / 2;
+          const drawY = player.y - scaledHeight / 2;
+
+          ctx.save();
+          ctx.imageSmoothingEnabled = false;
+          if (!facingRight) {
+            ctx.scale(-1, 1);
+            ctx.drawImage(
+              tintedSprite,
+              frameX,
+              0,
+              SPRITE_FRAME_WIDTH,
+              SPRITE_FRAME_HEIGHT,
+              -screenX - scaledWidth / 2,
+              drawY,
+              scaledWidth,
+              scaledHeight
+            );
+          } else {
+            ctx.drawImage(
+              tintedSprite,
+              frameX,
+              0,
+              SPRITE_FRAME_WIDTH,
+              SPRITE_FRAME_HEIGHT,
+              drawX,
+              drawY,
+              scaledWidth,
+              scaledHeight
+            );
+          }
+          ctx.restore();
+        } else {
+          // Fallback to circle if sprite not available
+          ctx.fillStyle = player.eliminated ? '#666666' : (player.color || '#FF6B6B');
+          ctx.beginPath();
+          ctx.arc(screenX, player.y, 12, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
 
       // Draw player name
       ctx.fillStyle = player.eliminated ? '#999999' : '#000000';
       ctx.font = `${player.eliminated ? 'italic' : 'bold'} 12px Arial`;
       ctx.textAlign = 'center';
-      ctx.fillText((player.name || 'Unknown').substring(0, 10), screenX, player.y - 20);
+      ctx.fillText((player.name || 'Unknown').substring(0, 10), screenX, player.y - 50);
 
       // Draw position indicator (only for alive players)
       if (!player.eliminated) {
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '10px Arial';
-        ctx.fillText(`${Math.round(player.position as number)}m`, screenX, player.y + 25);
+        ctx.fillText(`${Math.round(player.position as number)}m`, screenX, player.y + 60);
       }
     });
 
