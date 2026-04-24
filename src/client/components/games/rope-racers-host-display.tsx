@@ -145,6 +145,7 @@ const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
 const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
 const OBSTACLE_GROUND_MARGIN = 50; // Margin between obstacle bottom and floor
+const GRAB_BOOST = 0.05; // Fixed angular velocity boost on grab
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -389,12 +390,14 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     player.velocity -= 2 * dotProduct * normal.x;
     player.vyy -= 2 * dotProduct * normal.y;
     
-    // Push player fully outside obstacle (separate by full penetration depth)
+    // Push player fully outside obstacle (separate by full penetration depth + epsilon margin)
     // Penetration is how far the player center has penetrated the PLAYER_RADIUS boundary
+    // Add small epsilon clearance buffer (1px) so player starts next frame cleanly outside
+    const EPSILON = 1.0;
     const penetration = PLAYER_RADIUS - distance;
     if (penetration > 0) {
-      player.position += normal.x * penetration;
-      player.y += normal.y * penetration;
+      player.position += normal.x * (penetration + EPSILON);
+      player.y += normal.y * (penetration + EPSILON);
     }
   };
 
@@ -653,6 +656,11 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   player.angle = initialAngle;
                   player.ropeLength = actualDistance; // FIX 1: Set rope length to actual distance to prevent teleport
                   player.angularVelocity = sign * speed / actualDistance;
+                  
+                  // Add fixed angular velocity boost on grab (in direction of angular velocity)
+                  if (player.angularVelocity !== 0) {
+                    player.angularVelocity += GRAB_BOOST * Math.sign(player.angularVelocity);
+                  }
                 }
               } else if (event.action === 'release' && player.state === 'swinging') {
                 // Release rope
@@ -711,6 +719,16 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 // Move to collision point
                 player.position = oldX + player.velocity * earliestT;
                 player.y = oldY + player.vyy * earliestT;
+                
+                // Approach-direction-aware normal selection:
+                // If the collision normal is pointing opposite to the velocity direction,
+                // flip it so we always bounce away from the obstacle we're approaching
+                const velocityDot = player.velocity * collisionNormal.x + player.vyy * collisionNormal.y;
+                if (velocityDot >= 0) {
+                  // Normal is pointing same direction as velocity (wrong way) — flip it
+                  collisionNormal.x = -collisionNormal.x;
+                  collisionNormal.y = -collisionNormal.y;
+                }
                 
                 // Apply bounce with actual collision distance for proper penetration
                 applyBounce(player, collisionNormal, collisionDistance);
@@ -777,8 +795,18 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   const tangentVel = player.angularVelocity * ropeLen;
                   const oldVelocity = { x: Math.cos(player.angle) * tangentVel, y: -Math.sin(player.angle) * tangentVel };
                   
+                  // Approach-direction-aware normal selection:
+                  // If the collision normal is pointing opposite to the velocity direction,
+                  // flip it so we always bounce away from the obstacle we're approaching
+                  let normal = { x: collision.normal.x, y: collision.normal.y };
+                  const velocityDot = oldVelocity.x * normal.x + oldVelocity.y * normal.y;
+                  if (velocityDot >= 0) {
+                    // Normal is pointing same direction as velocity (wrong way) — flip it
+                    normal.x = -normal.x;
+                    normal.y = -normal.y;
+                  }
+                  
                   // Apply bounce reflection to velocity (temporary velocity for impulse calculation)
-                  const normal = collision.normal;
                   const dotProduct = oldVelocity.x * normal.x + oldVelocity.y * normal.y;
                   const newVelocity = {
                     x: oldVelocity.x - 2 * dotProduct * normal.x,
@@ -800,11 +828,12 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                   const deltaAngularVel = deltaVelTangential / ropeLen;
                   player.angularVelocity += deltaAngularVel;
                   
-                  // Position correction: push player out of obstacle along normal
+                  // Position correction: push player out of obstacle along normal with epsilon clearance
+                  const EPSILON = 1.0;
                   const penetration = PLAYER_RADIUS - collision.distance;
                   if (penetration > 0) {
-                    const correctedX = player.position + normal.x * penetration;
-                    const correctedY = player.y + normal.y * penetration;
+                    const correctedX = player.position + normal.x * (penetration + EPSILON);
+                    const correctedY = player.y + normal.y * (penetration + EPSILON);
                     
                     // Re-derive angle from corrected position relative to anchor
                     const dx = correctedX - anchor.x;
@@ -815,8 +844,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                     const collision2 = checkObstacleCollision(player, obstacle);
                     if (collision2.collides) {
                       const extraPenetration = PLAYER_RADIUS - collision2.distance;
-                      player.position += collision2.normal.x * extraPenetration;
-                      player.y += collision2.normal.y * extraPenetration;
+                      player.position += collision2.normal.x * (extraPenetration + EPSILON);
+                      player.y += collision2.normal.y * (extraPenetration + EPSILON);
                       // Re-snap angle to arc
                       const dx2 = player.position - anchor.x;
                       const dy2 = player.y - anchor.y;
