@@ -4,6 +4,7 @@ interface TugOfWarControllerProps {
   onInput: (event: any) => void;
   latency?: number;
   team?: 'red' | 'blue' | null;
+  color?: string | null;
 }
 
 export const TugOfWarController = (props: TugOfWarControllerProps) => {
@@ -15,7 +16,8 @@ export const TugOfWarController = (props: TugOfWarControllerProps) => {
     });
   };
 
-  const teamColor = () => props.team === 'red' ? '#ff6b6b' : props.team === 'blue' ? '#4ecdc4' : '#999';
+  // Use player color if available, fall back to team color
+  const backgroundColor = () => props.color || (props.team === 'red' ? '#ff6b6b' : props.team === 'blue' ? '#4ecdc4' : '#999');
   const teamLabel = () => props.team === 'red' ? 'RED TEAM' : props.team === 'blue' ? 'BLUE TEAM' : 'NO TEAM';
 
   return (
@@ -28,7 +30,7 @@ export const TugOfWarController = (props: TugOfWarControllerProps) => {
         height: '100%',
         gap: '2rem',
         padding: '2rem',
-        'background-color': teamColor(),
+        'background-color': backgroundColor(),
         color: 'white',
       }}
     >
@@ -50,7 +52,7 @@ export const TugOfWarController = (props: TugOfWarControllerProps) => {
             padding: '2rem 4rem',
             'font-size': '2rem',
             background: 'rgba(255,255,255,0.95)',
-            color: teamColor(),
+            color: backgroundColor(),
             border: 'none',
             'border-radius': '8px',
             cursor: 'pointer',

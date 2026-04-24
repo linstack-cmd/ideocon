@@ -5,6 +5,7 @@ import { createSignal, createMemo } from 'solid-js';
 interface RopeRacersControllerProps {
   onInput: (event: any) => void;
   latency?: number;
+  color?: string | null;
   gameState?: any;
   gameEvents?: any[];
   playerId: string;
@@ -85,6 +86,32 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
     };
   });
 
+  const getBackgroundColor = () => {
+    if (playerInfo().isEliminated) {
+      return 'linear-gradient(135deg, #333333 0%, #555555 100%)';
+    }
+    
+    const baseColor = props.color || '#f5576c';
+    // Create a gradient using the player's color and a slightly darker version
+    const darkerColor = adjustBrightness(baseColor, -0.3);
+    return `linear-gradient(135deg, ${baseColor} 0%, ${darkerColor} 100%)`;
+  };
+
+  const adjustBrightness = (hex: string, percent: number): string => {
+    // Convert hex to RGB
+    let num = parseInt(hex.replace("#",""), 16);
+    let amt = Math.round(2.55 * percent);
+    let r = (num >> 16) + amt;
+    let g = (num >> 8 & 0x00FF) + amt;
+    let b = (num & 0x0000FF) + amt;
+    
+    r = r < 0 ? 0 : r > 255 ? 255 : r;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    b = b < 0 ? 0 : b > 255 ? 255 : b;
+    
+    return "#" + (0x1000000 + (r<16?0:1)*r*0x10000 + (g<16?0:1)*g*0x100 + (b<16?0:1)*b).toString(16).slice(1);
+  };
+
   return (
     <div
       style={{
@@ -95,11 +122,7 @@ export const RopeRacersController = (props: RopeRacersControllerProps) => {
         height: '100%',
         gap: '2rem',
         padding: '2rem',
-        'background': playerInfo().isEliminated
-          ? 'linear-gradient(135deg, #333333 0%, #555555 100%)'
-          : playerInfo().isGrabbing
-          ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-          : 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+        'background': getBackgroundColor(),
         color: 'white',
         transition: 'background 0.3s ease',
       }}

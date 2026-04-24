@@ -10,7 +10,7 @@ export type ClientMessage =
   | { type: 'reset_game' };
 
 export type ServerMessage =
-  | { type: 'join_ok'; roomCode: string; playerId: string; playerType: 'host' | 'controller'; players: PlayerInfo[]; gameInProgress: boolean; team?: 'red' | 'blue' }
+  | { type: 'join_ok'; roomCode: string; playerId: string; playerType: 'host' | 'controller'; players: PlayerInfo[]; gameInProgress: boolean; team?: 'red' | 'blue'; color?: string }
   | { type: 'join_error'; reason: string }
   | { type: 'player_joined'; playerId: string; playerInfo: PlayerInfo }
   | { type: 'player_left'; playerId: string }
@@ -38,6 +38,7 @@ export interface Player {
   joinedAt: number;
   name?: string;
   team?: 'red' | 'blue'; // only for controllers
+  color?: string; // unique hex color for player identity
 }
 
 export interface PlayerInfo {
@@ -46,6 +47,7 @@ export interface PlayerInfo {
   joinedAt: number;
   name?: string;
   team?: 'red' | 'blue'; // only for controllers
+  color?: string; // unique hex color for player identity
 }
 
 export type GameInputEvent = {

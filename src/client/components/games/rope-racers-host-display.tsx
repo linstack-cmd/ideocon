@@ -20,6 +20,7 @@ interface GameEvent {
 interface PlayerState {
   id: string;
   name?: string;
+  color?: string; // unique player color
   position: number;
   velocity: number; // horizontal velocity
   y: number; // vertical position
@@ -39,6 +40,14 @@ interface AnchorPoint {
   id: number;
 }
 
+interface Obstacle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  id: number;
+}
+
 const GRAVITY = 0.25;
 const ROPE_LENGTH = 80;
 const ANCHOR_GRAB_RADIUS = 350; // Increased to make grabbing more reliably reachable
@@ -50,6 +59,16 @@ const FLOOR_Y = GROUND_LEVEL;
 const ANCHOR_SPAWN_AHEAD = 1500; // Spawn anchors this far ahead of camera
 const ANCHOR_CLEANUP_BEHIND = 500; // Clean up anchors this far behind camera
 const INITIAL_ANCHOR_DISTANCE = 200; // Distance from start to first anchor (easier grab)
+const PLAYER_RADIUS = 12;
+const OBSTACLE_MIN_WIDTH = 40;
+const OBSTACLE_MAX_WIDTH = 100;
+const OBSTACLE_MIN_HEIGHT = 30;
+const OBSTACLE_MAX_HEIGHT = 80;
+const OBSTACLE_MIN_Y = 320; // Obstacles spawn below anchors
+const OBSTACLE_MAX_Y = 540; // But above ground
+const OBSTACLE_SPAWN_AHEAD = 1500; // Same as anchors
+const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
+const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -57,11 +76,15 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [winner, setWinner] = createSignal<string | null>(null);
   const [playerStates, setPlayerStates] = createSignal<Map<string, PlayerState>>(new Map());
   const [anchorPoints, setAnchorPoints] = createSignal<AnchorPoint[]>([]);
+  const [obstacles, setObstacles] = createSignal<Obstacle[]>([]);
   const [cameraX, setCameraX] = createSignal(0);
+  const [canvasWidth, setCanvasWidth] = createSignal(1200);
+  const [canvasHeight, setCanvasHeight] = createSignal(700);
   let canvasRef: HTMLCanvasElement | undefined;
   let gameLoopId: number | null = null;
   let broadcastIntervalId: number | null = null;
   let countdownIntervalId: number | null = null;
+  let resizeHandler: (() => void) | null = null;
 
   // Generate anchors dynamically - ensure continuous anchor coverage
   const generateAnchorsInRange = (minX: number, maxX: number, existingAnchors: AnchorPoint[]): AnchorPoint[] => {
@@ -97,6 +120,89 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     
     // Remove anchors that are too far behind
     return anchors.filter(a => a.x >= minX);
+  };
+
+  // Generate obstacles dynamically
+  const generateObstaclesInRange = (minX: number, maxX: number, existingObstacles: Obstacle[], anchorPoints: AnchorPoint[]): Obstacle[] => {
+    const obstacles = [...existingObstacles];
+    let nextId = Math.max(0, ...obstacles.map(o => o.id), ...anchorPoints.map(a => a.id)) + 1;
+    
+    // Find the rightmost obstacle
+    const rightmostX = obstacles.length > 0 ? Math.max(...obstacles.map(o => o.x)) : -500;
+    
+    // Generate obstacles from rightmostX to maxX if needed (roughly one per 2-3 anchor gaps)
+    if (rightmostX < maxX) {
+      let currentX = rightmostX > 0 ? rightmostX : 400;
+      
+      while (currentX < maxX) {
+        const minGap = 400;
+        const maxGap = 600;
+        const gapDistance = minGap + Math.random() * (maxGap - minGap);
+        
+        currentX += gapDistance;
+        
+        if (currentX >= maxX) break;
+        
+        // Random obstacle size
+        const width = OBSTACLE_MIN_WIDTH + Math.random() * (OBSTACLE_MAX_WIDTH - OBSTACLE_MIN_WIDTH);
+        const height = OBSTACLE_MIN_HEIGHT + Math.random() * (OBSTACLE_MAX_HEIGHT - OBSTACLE_MIN_HEIGHT);
+        
+        // Random y position in playable space
+        const y = OBSTACLE_MIN_Y + Math.random() * (OBSTACLE_MAX_Y - OBSTACLE_MIN_Y);
+        
+        // Check if this obstacle overlaps with any anchors (avoid placing on top of anchors)
+        const overlapsAnchor = anchorPoints.some(a => Math.abs(a.x - currentX) < 120);
+        
+        if (!overlapsAnchor) {
+          obstacles.push({ x: currentX, y, width, height, id: nextId });
+          nextId++;
+        }
+      }
+    }
+    
+    // Remove obstacles that are too far behind
+    return obstacles.filter(o => o.x >= minX);
+  };
+
+  // Check collision between player circle and obstacle rectangle
+  const checkObstacleCollision = (player: PlayerState, obstacle: Obstacle): { collides: boolean; normal: { x: number; y: number } } => {
+    // Find the closest point on the rectangle to the circle center
+    const closestX = Math.max(obstacle.x, Math.min(player.position, obstacle.x + obstacle.width));
+    const closestY = Math.max(obstacle.y, Math.min(player.y, obstacle.y + obstacle.height));
+    
+    // Calculate distance between circle center and closest point
+    const dx = player.position - closestX;
+    const dy = player.y - closestY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance < PLAYER_RADIUS) {
+      // Collision detected! Calculate normal vector (perpendicular to surface)
+      let normalX = dx;
+      let normalY = dy;
+      
+      // Normalize the normal vector
+      if (distance > 0) {
+        normalX /= distance;
+        normalY /= distance;
+      } else {
+        // If we're exactly at closest point, use a default normal
+        normalX = 1;
+        normalY = 0;
+      }
+      
+      return { collides: true, normal: { x: normalX, y: normalY } };
+    }
+    
+    return { collides: false, normal: { x: 0, y: 0 } };
+  };
+
+  // Apply bounce collision physics - reflect velocity perpendicular to surface
+  const applyBounce = (player: PlayerState, normal: { x: number; y: number }) => {
+    // Reflect velocity across the surface normal
+    // v_reflected = v - 2(v · n)n
+    const dotProduct = player.velocity * normal.x + player.vyy * normal.y;
+    player.velocity -= 2 * dotProduct * normal.x;
+    player.vyy -= 2 * dotProduct * normal.y;
   };
 
   // Find the best anchor for a player to grab (two-pass algorithm with safety filter)
@@ -203,9 +309,32 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
   // Initialize game
   onMount(() => {
+    // Handle canvas resize
+    resizeHandler = () => {
+      if (canvasRef) {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        setCanvasWidth(width);
+        setCanvasHeight(height);
+        // Update canvas resolution to match window
+        canvasRef.width = width;
+        canvasRef.height = height;
+      }
+    };
+
+    // Set initial size
+    resizeHandler();
+    
+    // Add resize listener
+    window.addEventListener('resize', resizeHandler);
+
     // Generate initial anchors
     const anchors = generateAnchorsInRange(0, ANCHOR_SPAWN_AHEAD, []);
     setAnchorPoints(anchors);
+    
+    // Generate initial obstacles
+    const obs = generateObstaclesInRange(0, OBSTACLE_SPAWN_AHEAD, [], anchors);
+    setObstacles(obs);
     
     // Initialize player states - players start flying, not hanging
     const states = new Map<string, PlayerState>();
@@ -214,6 +343,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       states.set(player.id, {
         id: player.id,
         name: player.name || `Player ${player.id.substring(0, 4)}`,
+        color: player.color,
         position: 0,
         velocity: 5,
         y: 200,
@@ -242,6 +372,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         setGameStarted(true);
       }
     }, 1000);
+
+    // Capture elimination results to avoid signal re-read issues
+    let lastAlivePlayers: PlayerState[] = [];
 
     // Game loop - runs physics and rendering together
     const tick = () => {
@@ -315,6 +448,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         setPlayerStates((prevStates) => {
           const newStates = new Map(prevStates);
           const anchors = anchorPoints();
+          const obstacleList = obstacles();
 
           newStates.forEach((player) => {
             if (player.eliminated) return;
@@ -325,6 +459,17 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               player.y += player.vyy;
               player.position += player.velocity;
 
+              // Check obstacle collisions and bounce
+              obstacleList.forEach((obstacle) => {
+                const collision = checkObstacleCollision(player, obstacle);
+                if (collision.collides) {
+                  applyBounce(player, collision.normal);
+                  // Push player slightly away from obstacle to prevent re-collision
+                  player.position += collision.normal.x * 2;
+                  player.y += collision.normal.y * 2;
+                }
+              });
+
               // FIX 2: Ground collision eliminates the player
               if (player.y >= FLOOR_Y) {
                 player.eliminated = true;
@@ -332,6 +477,12 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
 
               // Check if fell off the screen - elimination (safety net)
               if (player.y >= ELIMINATION_Y) {
+                player.eliminated = true;
+              }
+
+              // Check camera-based elimination - players behind camera left edge get eliminated
+              const cameraLeftEdge = cameraX() - CAMERA_ELIMINATION_GRACE_BUFFER;
+              if (player.position < cameraLeftEdge) {
                 player.eliminated = true;
               }
             } else if (player.state === 'swinging') {
@@ -368,8 +519,31 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 player.eliminated = true;
               }
 
-              // If released, transition to flying
-              if (player.grabbing === false && player.anchorId !== null) {
+              // Check if swinging player hits obstacle - detach and bounce
+              let hitObstacle = false;
+              obstacleList.forEach((obstacle) => {
+                const collision = checkObstacleCollision(player, obstacle);
+                if (collision.collides && !hitObstacle) {
+                  hitObstacle = true;
+                  // Detach from rope and transition to flying
+                  player.state = 'flying';
+                  player.grabbing = false;
+                  
+                  // Calculate tangent velocity from angular velocity before bounce
+                  const tangentVel = player.angularVelocity * ropeLen;
+                  player.velocity = Math.cos(player.angle) * tangentVel;
+                  player.vyy = -Math.sin(player.angle) * tangentVel;
+                  
+                  // Apply bounce
+                  applyBounce(player, collision.normal);
+                  // Push player slightly away from obstacle
+                  player.position += collision.normal.x * 2;
+                  player.y += collision.normal.y * 2;
+                }
+              });
+
+              // If released (and didn't hit obstacle), transition to flying
+              if (!hitObstacle && player.grabbing === false && player.anchorId !== null) {
                 player.state = 'flying';
                 // Calculate tangent velocity from angular velocity
                 const tangentVel = player.angularVelocity * ropeLen;
@@ -379,13 +553,17 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
             }
           });
 
+          // BUGFIX: Capture the alive players directly from the updated state
+          // instead of re-reading the signal, which may have stale data
+          lastAlivePlayers = Array.from(newStates.values()).filter(p => !p.eliminated);
+
           return newStates;
         });
 
         // Check winner condition after physics update
+        // Use the locally-captured alive players instead of re-reading the signal
         if (winner() === null && gameStarted()) {
-          const states = playerStates();
-          const alivePlayers = Array.from(states.values()).filter(p => !p.eliminated);
+          const alivePlayers = lastAlivePlayers;
           const hasAnyElimination = alivePlayers.length < props.players.length;
 
           if (props.players.length === 1) {
@@ -403,7 +581,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           }
         }
 
-        // Update anchors dynamically based on camera position
+        // Update anchors and obstacles dynamically based on camera position
         setCameraX((cam) => {
           const newAnchors = generateAnchorsInRange(
             cam - ANCHOR_CLEANUP_BEHIND,
@@ -411,6 +589,15 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
             anchorPoints()
           );
           setAnchorPoints(newAnchors);
+          
+          const newObstacles = generateObstaclesInRange(
+            cam - OBSTACLE_CLEANUP_BEHIND,
+            cam + OBSTACLE_SPAWN_AHEAD,
+            obstacles(),
+            newAnchors
+          );
+          setObstacles(newObstacles);
+          
           return cam;
         });
       }
@@ -430,6 +617,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     broadcastIntervalId = window.setInterval(() => {
       const states = playerStates();
       const anchors = anchorPoints();
+      const obstacleList = obstacles();
       const playersData = Array.from(states.values()).map((p) => ({
         id: p.id,
         name: p.name,
@@ -445,6 +633,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         props.onBroadcastState({
           players: playersData,
           anchors: anchors.map((a: AnchorPoint) => ({ x: a.x, y: a.y })),
+          obstacles: obstacleList.map((o: Obstacle) => ({ x: o.x, y: o.y, width: o.width, height: o.height })),
           winner: winner(),
           gameStarted: gameStarted(),
         });
@@ -496,8 +685,20 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
       ctx.fill();
     });
 
+    // Draw obstacles
+    const obstacleList = obstacles();
+    ctx.fillStyle = '#4A4A4A';
+    ctx.strokeStyle = '#2A2A2A';
+    ctx.lineWidth = 2;
+    obstacleList.forEach((obstacle: Obstacle) => {
+      const screenX = obstacle.x - cam;
+      if (screenX < -obstacle.width - 50 || screenX > canvas.width + 50) return;
+
+      ctx.fillRect(screenX, obstacle.y, obstacle.width, obstacle.height);
+      ctx.strokeRect(screenX, obstacle.y, obstacle.width, obstacle.height);
+    });
+
     // Draw players and ropes
-    let playerIdx = 0;
     states.forEach((player) => {
       const screenX = player.position - cam;
 
@@ -506,7 +707,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         const anchor = anchors.find((a: AnchorPoint) => a.id === player.anchorId);
         if (anchor) {
           const anchorScreenX = anchor.x - cam;
-          ctx.strokeStyle = '#DAA520';
+          // Use player color for rope if available
+          ctx.strokeStyle = player.color || '#DAA520';
           ctx.lineWidth = 3;
           ctx.beginPath();
           ctx.moveTo(anchorScreenX, anchor.y);
@@ -531,10 +733,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         }
       }
 
-      // Draw player character
-      const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
-      ctx.fillStyle = player.eliminated ? '#666666' : colors[playerIdx % colors.length];
-      playerIdx++;
+      // Draw player character using player's assigned color
+      ctx.fillStyle = player.eliminated ? '#666666' : (player.color || '#FF6B6B');
       ctx.beginPath();
       ctx.arc(screenX, player.y, 12, 0, Math.PI * 2);
       ctx.fill();
@@ -583,46 +783,69 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
     if (gameLoopId !== null) cancelAnimationFrame(gameLoopId);
     if (broadcastIntervalId !== null) clearInterval(broadcastIntervalId);
     if (countdownIntervalId !== null) clearInterval(countdownIntervalId);
+    if (resizeHandler !== null) window.removeEventListener('resize', resizeHandler);
   });
 
   return (
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 1rem; padding: 1rem; background: #1a1a1a;">
-      <h1 style="color: white; margin: 0;">Rope Racers</h1>
+    <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; margin: 0; padding: 0; overflow: hidden; background: #000;">
+      <canvas
+        ref={canvasRef}
+        width={canvasWidth()}
+        height={canvasHeight()}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          'background-color': '#87CEEB',
+        }}
+      />
 
-      <div style="position: relative; width: 100%; height: calc(100% - 120px);">
-        <canvas
-          ref={canvasRef}
-          width={1200}
-          height={700}
-          style={{
-            border: '2px solid white',
-            'background-color': '#87CEEB',
-            'display': 'block',
-            'width': '100%',
-            'height': '100%',
-            'max-width': '1200px',
-            'margin': '0 auto',
-          }}
-        />
-      </div>
+      {/* Winner overlay - positioned absolutely on top of canvas */}
+      {winner() && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          'flex-direction': 'column',
+          'align-items': 'center',
+          'justify-content': 'center',
+          gap: '2rem',
+          'pointer-events': 'none',
+        }}>
+          <div style={{
+            'font-size': '4rem',
+            'font-weight': 'bold',
+            color: '#FFFFFF',
+            'text-shadow': '0 0 10px rgba(0,0,0,0.8)',
+            'text-align': 'center',
+          }}>
+            {winner()}
+          </div>
+        </div>
+      )}
 
-      <div style="color: white; font-size: 0.9rem; text-align: center;">
-        Players: {playerStates().size}
-      </div>
-
+      {/* Play Again button - positioned absolutely on top of canvas */}
       {winner() && (
         <button
           onClick={() => props.onPlayAgain?.()}
           style={{
-            padding: '0.75rem 2rem',
-            'font-size': '1.1rem',
+            position: 'fixed',
+            bottom: '2rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '1rem 2.5rem',
+            'font-size': '1.3rem',
             'font-weight': 'bold',
             background: '#4CAF50',
             color: 'white',
             border: 'none',
-            'border-radius': '4px',
+            'border-radius': '8px',
             cursor: 'pointer',
             transition: 'background 0.2s',
+            'pointer-events': 'auto',
           }}
           onMouseEnter={(e) => (e.currentTarget.style.background = '#45a049')}
           onMouseLeave={(e) => (e.currentTarget.style.background = '#4CAF50')}

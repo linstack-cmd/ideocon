@@ -92,7 +92,12 @@ export class WebSocketHandler {
       joinedAt: p.joinedAt,
       name: p.name,
       team: p.team,
+      color: p.color,
     }));
+
+    const joiningPlayer = playerType === 'host' 
+      ? result.room!.host! 
+      : result.room!.players.find((p) => p.id === result.playerId!);
 
     this.roomManager.sendToConnection(this.ws, {
       type: 'join_ok',
@@ -101,15 +106,12 @@ export class WebSocketHandler {
       playerType,
       players: playerInfoList,
       gameInProgress: result.room!.gameInProgress,
-      team: playerType === 'controller' ? result.room!.players.find(p => p.id === result.playerId!)?.team : undefined,
+      team: playerType === 'controller' ? joiningPlayer?.team : undefined,
+      color: joiningPlayer?.color,
     });
 
     // Notify other clients in the room about the new player
-    // Use the stored player's name (which is trimmed by joinRoom)
-    const newPlayer = playerType === 'host' 
-      ? result.room!.host! 
-      : result.room!.players.find((p) => p.id === result.playerId!);
-    
+    // Use the stored player's name and color
     this.roomManager.broadcastToRoom(
       actualRoomCode,
       {
@@ -119,8 +121,9 @@ export class WebSocketHandler {
           id: result.playerId!,
           playerType,
           joinedAt: Date.now(),
-          name: newPlayer?.name,
-          team: newPlayer?.team,
+          name: joiningPlayer?.name,
+          team: joiningPlayer?.team,
+          color: joiningPlayer?.color,
         },
       },
       this.ws

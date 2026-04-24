@@ -99,7 +99,14 @@ export const HostLobby = (props: HostLobbyProps) => {
         <ul style="list-style: none; margin-top: 1rem;">
           <For each={props.players}>
             {(player) => (
-              <li style="padding: 0.5rem; background: #e9ecef; margin: 0.25rem; border-radius: 4px;">
+              <li style={{
+                padding: '0.5rem 1rem',
+                background: player.color || '#e9ecef',
+                margin: '0.25rem',
+                'border-radius': '4px',
+                color: '#000',
+                'font-weight': 'bold',
+              }}>
                 🎮 {player.name || `Player (${player.id.substring(0, 8)})`}
               </li>
             )}

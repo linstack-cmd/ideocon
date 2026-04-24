@@ -27,6 +27,7 @@ export const App = () => {
   const [joinError, setJoinError] = createSignal<string>('');
   const [qrCode, setQrCode] = createSignal<string | null>(null);
   const [playerTeam, setPlayerTeam] = createSignal<'red' | 'blue' | null>(null);
+  const [playerColor, setPlayerColor] = createSignal<string | null>(null);
 
   // Check for QR code in URL query parameters and set view accordingly
   createEffect(() => {
@@ -55,6 +56,9 @@ export const App = () => {
           setGameInProgress(msg.gameInProgress);
           if (msg.team) {
             setPlayerTeam(msg.team);
+          }
+          if (msg.color) {
+            setPlayerColor(msg.color);
           }
 
           // Determine view based on our own player type from the response
@@ -233,6 +237,7 @@ export const App = () => {
             onInput={handleGameInput}
             latency={latency()}
             team={playerTeam()}
+            color={playerColor()}
             playerId={playerId()}
             gameState={gameState()}
             gameEvents={gameEvents()}

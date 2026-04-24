@@ -11,6 +11,7 @@ interface ControllerDispatcherProps {
   onInput: (event: any) => void;
   latency?: number;
   team?: 'red' | 'blue' | null;
+  color?: string | null;
   playerId?: string;
   gameState?: any;
   gameEvents?: any[];
@@ -30,6 +31,7 @@ export const ControllerDispatcher = (props: ControllerDispatcherProps) => {
           onInput={props.onInput} 
           latency={props.latency}
           team={props.team}
+          color={props.color}
         />
       </Match>
 
@@ -38,6 +40,7 @@ export const ControllerDispatcher = (props: ControllerDispatcherProps) => {
         <RopeRacersController 
           onInput={props.onInput} 
           latency={props.latency}
+          color={props.color}
           gameState={props.gameState}
           gameEvents={props.gameEvents}
           playerId={props.playerId || ''}
