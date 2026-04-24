@@ -116,6 +116,7 @@ interface PlayerState {
   angularVelocity: number;
   ropeLength: number; // per-player rope length (set at grab time)
   eliminated: boolean;
+  bounceCooldowObstacles: Map<number, number>; // Map from obstacle ID to remaining cooldown (in frames)
 }
 
 interface AnchorPoint {
@@ -146,6 +147,7 @@ const OBSTACLE_CLEANUP_BEHIND = 500; // Same as anchors
 const CAMERA_ELIMINATION_GRACE_BUFFER = 80; // Pixels beyond left edge before elimination
 const OBSTACLE_GROUND_MARGIN = 50; // Margin between obstacle bottom and floor
 const GRAB_BOOST = 0.002; // Fixed angular velocity boost on grab
+const BOUNCE_COOLDOWN_FRAMES = 8; // Frames of immunity after bouncing off an obstacle (at 60Hz baseline)
 
 export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
   const [gameStarted, setGameStarted] = createSignal(false);
@@ -583,6 +585,7 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
         angularVelocity: 0,
         ropeLength: ROPE_LENGTH,
         eliminated: false,
+        bounceCooldowObstacles: new Map(),
       });
     });
     setPlayerStates(states);
@@ -677,6 +680,8 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               } else if (event.action === 'release' && player.state === 'swinging') {
                 // Release rope
                 player.grabbing = false;
+                // Clear cooldowns when releasing (allow immediate re-grab and bounces against fresh obstacles)
+                player.bounceCooldowObstacles.clear();
               }
             });
             
@@ -701,6 +706,18 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
           newStates.forEach((player) => {
             if (player.eliminated) return;
 
+            // Decrement bounce cooldowns for all obstacles
+            const cooldownsToRemove: number[] = [];
+            player.bounceCooldowObstacles.forEach((cooldown, obstacleId) => {
+              const newCooldown = cooldown - dt;
+              if (newCooldown <= 0) {
+                cooldownsToRemove.push(obstacleId);
+              } else {
+                player.bounceCooldowObstacles.set(obstacleId, newCooldown);
+              }
+            });
+            cooldownsToRemove.forEach(id => player.bounceCooldowObstacles.delete(id));
+
             if (player.state === 'flying') {
               // Store old position for CCD
               const oldX = player.position;
@@ -716,14 +733,21 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               let earliestT = 1;
               let collisionNormal = { x: 0, y: 0 };
               let collisionDistance = PLAYER_RADIUS;
+              let collidedObstacleId = -1;
               
               obstacleList.forEach((obstacle) => {
+                // Skip obstacles the player has active cooldown against
+                if (player.bounceCooldowObstacles.has(obstacle.id)) {
+                  return;
+                }
+                
                 const swept = checkSweptCollision(oldX, oldY, newX, newY, obstacle);
                 if (swept.collision && swept.t < earliestT) {
                   earliestT = swept.t;
                   collisionNormal = swept.normal;
                   collisionDistance = swept.distance;
                   collided = true;
+                  collidedObstacleId = obstacle.id;
                 }
               });
               
@@ -736,19 +760,17 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                 // If the collision normal is pointing opposite to the velocity direction,
                 // flip it so we always bounce away from the obstacle we're approaching
                 const velocityDot = player.velocity * collisionNormal.x + player.vyy * collisionNormal.y;
-                let wasFlipped = false;
                 if (velocityDot >= 0) {
                   // Normal is pointing same direction as velocity (wrong way) — flip it
                   collisionNormal.x = -collisionNormal.x;
                   collisionNormal.y = -collisionNormal.y;
-                  wasFlipped = true;
                 }
-                
-                // Debug logging for double-bounce investigation
-                console.log('[bounce]', player.color, 'dot:', velocityDot.toFixed(3), 'flipped:', wasFlipped, 'normal:', collisionNormal, 'vel after bounce:', {vx: (player.velocity - 2 * velocityDot * collisionNormal.x).toFixed(2), vy: (player.vyy - 2 * velocityDot * collisionNormal.y).toFixed(2)});
                 
                 // Apply bounce with actual collision distance for proper penetration
                 applyBounce(player, collisionNormal, collisionDistance);
+                
+                // Apply per-obstacle bounce cooldown to prevent re-collisions in subsequent frames
+                player.bounceCooldowObstacles.set(collidedObstacleId, BOUNCE_COOLDOWN_FRAMES);
               } else {
                 // No collision, use full movement
                 player.y = newY;
@@ -803,6 +825,11 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
               // This must run before the ground check so obstacle bounce can save the player
               let hitObstacle = false;
               obstacleList.forEach((obstacle) => {
+                // Skip obstacles the player has active cooldown against
+                if (player.bounceCooldowObstacles.has(obstacle.id)) {
+                  return;
+                }
+                
                 const collision = checkObstacleCollision(player, obstacle);
                 if (collision.collides && !hitObstacle) {
                   hitObstacle = true;
@@ -869,6 +896,9 @@ export const RopeRacersHostDisplay = (props: RopeRacersHostDisplayProps) => {
                       player.angle = Math.atan2(dx2, dy2);
                     }
                   }
+                  
+                  // Apply per-obstacle bounce cooldown to prevent re-collisions in subsequent frames
+                  player.bounceCooldowObstacles.set(obstacle.id, BOUNCE_COOLDOWN_FRAMES);
                 }
               });
 
